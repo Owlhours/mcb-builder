@@ -132,6 +132,7 @@ public final class Nav {
 
     private static final int[] DX = {1, -1, 0, 0}, DZ = {0, 0, 1, -1};
     static final boolean X_FPILLAR = System.getenv("MCB_NO_FPILLAR") == null;
+    static final boolean X_POST = System.getenv("MCB_NO_POST") == null, X_DUGH = System.getenv("MCB_NO_DUGH") == null;   // (for the comparison; to go once decided)
 
     /**
      * Cheapest route from the start cell to the goal cell. scaffoldOk says where temporary blocks may go (null = no
@@ -167,7 +168,10 @@ public final class Nav {
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
             boolean dug = how[i] == DIG || how[i] == CLEAR || how[i] == MINE;
-            int h = virtualStand || dug ? 0 : g.stand16(x, y, z);
+            // (where the bot sinks to by digging or mining, it stands on whatever is below: on a post or wall that
+            // is half a block up, and the head room is wanted for that - a drop planned from the top of a fence
+            // under a ceiling as if from the floor left the bot there for good)
+            int h = virtualStand ? 0 : dug ? (X_DUGH ? Math.max(0, StateInfo.colTop[g.get(x, y - 1, z)] - 16) : 0) : g.stand16(x, y, z);
             if (i == start && h < 0 && startH >= 0) h = startH;
             if (h < 0 && g.hang(x, y, z)) { ladderMoves(i, x, y, z, c); continue; }
             if (h < 0) {
@@ -251,6 +255,17 @@ public final class Nav {
             }
             // last resort: break the block of the build underfoot and drop to whatever is below
             if (mine != null && !virtualStand && !floorTower && h == 0 && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
+                int t = mine.ticks(x, y - 1, z);
+                if (t > 0) {
+                    for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
+                        int below = g.get(x, ty, z);
+                        if (StateInfo.colTop[below] >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (StateInfo.colTop[below] != 0) break;
+                    }
+                }
+            }
+            // the same when standing half a block up on a post or wall below (nothing in the own cell): break the post
+            if (X_POST && mine != null && !virtualStand && !dug && h > 0 && g.passable(x, y, z) && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
                 int t = mine.ticks(x, y - 1, z);
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
