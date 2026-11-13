@@ -158,6 +158,7 @@ abstract class Scaffolds extends Stances {
     }
 
     /** Set while a block lent for a click is being taken away again (that one always goes). */
+    static final boolean CAREFUL = System.getenv("MCB_NO_CAREFUL") == null;   // (switch for the comparison; to go once decided)
     boolean mustRemove;
     long keptForExit;
 
@@ -165,7 +166,7 @@ abstract class Scaffolds extends Stances {
         checkScaffold();
         // while building: a temporary block (or column) that is the bot's only way out of where it stands stays for
         // now - what wanted its place is put off
-        if (!cleaning && !mustRemove && !acceptTraps && !forceMine && !rescuing && c.onGround() && scaffold.contains(i) && g.stand16(cx(), cy(), cz()) >= 0) {
+        if (X_KEEP && !cleaning && !mustRemove && !acceptTraps && !forceMine && !rescuing && c.onGround() && scaffold.contains(i) && g.stand16(cx(), cy(), cz()) >= 0) {
             int x0 = g.xOf(i), y0 = g.yOf(i), z0 = g.zOf(i);
             if (Math.abs(x0 - cx()) <= 6 && Math.abs(z0 - cz()) <= 6) {
                 int top = y0;
@@ -179,12 +180,12 @@ abstract class Scaffolds extends Stances {
                     while (ty > g.y0 && g.stand16(cx(), ty, cz()) < 0 && g.passable(cx(), ty, cz())) ty--;
                     open = g.stand16(cx(), ty, cz()) >= 0 && wayOut(cx(), ty, cz());
                 } finally { for (int k = 0; k < cells.length; k++) g.cur[cells[k]] = was[k]; }
-                if (!open) { keptForExit++; trapsAvoided++; return false; }
+                if (!open && wayOut(cx(), cy(), cz())) { keptForExit++; trapsAvoided++; return false; }
             }
         }
         if (StateInfo.scaffolding[g.cur[i]]) return removeTower(i);
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-        boolean careful = cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
+        boolean careful = CAREFUL && cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
         if (careful) goingAway = new int[] {i};
         try {
         for (int attempt = 0; attempt < 3; attempt++) {
@@ -225,7 +226,7 @@ abstract class Scaffolds extends Stances {
         while (g.in(x, low - 1, z) && scaffold.contains(g.idx(x, low - 1, z)) && g.isTower(x, low - 1, z)) low--;
         // (careful while the bot is free to walk away: it stays so. Where it could only get out with new scaffolding
         // anyway, it clears what is in there with it first.)
-        boolean careful = cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
+        boolean careful = CAREFUL && cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
         if (!careful) {
             if (breakTowerBlock(x, low, z) && !scaffold.contains(i)) return true;
             if (!scaffold.contains(i)) return true;
@@ -340,7 +341,7 @@ abstract class Scaffolds extends Stances {
             }
             if (best < 0) {
                 // everything else has had its turn: what could not be done before may be possible now that the rest is gone
-                if (progress && !hopeless.isEmpty()) { hopeless.clear(); progress = false; continue; }
+                if (X_LOOP && progress && !hopeless.isEmpty()) { hopeless.clear(); progress = false; continue; }
                 if (verbose) log("cleanup: nothing more to try with " + scaffold.size() + " left, " + hopeless.size() + " given up (force=" + forceMine + ")");
                 break;
             }
@@ -352,7 +353,7 @@ abstract class Scaffolds extends Stances {
             undoRope();
             if (verbose && (cleanupLogs++ < 60 || TRACE)) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
             if (!okRemove) { hopeless.add(best); badStand.clear(); }
-            else if (scaffold.size() < before) progress = true;
+            else if (scaffold.size() < before) { progress = true; if (!X_LOOP) hopeless.clear(); }
             else { hopeless.add(best); sinceLeast++; }
             if (okRemove && scaffold.size() >= least) sinceLeast++;
         }

@@ -97,9 +97,9 @@ abstract class Moves extends BuildState {
         // the way found is remembered so that the next blocks placed from here need no search at all. (This used to
         // be "room for a hundred steps means not shut in" - which a hall or a shaft with a column in it passes too.)
         towersOff = true;
-        boolean ok = nav.search(x, y, z, ax, ay, az, 5000, null);
+        boolean ok = X_EXIT ? nav.search(x, y, z, ax, ay, az, 5000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
         towersOff = false;
-        if (ok) {
+        if (ok && X_EXIT) {
             exitNodes.clear(); exitCells.clear();
             for (int k = 0; k < nav.length; k++) {
                 int px = nav.path[k * 3], py = nav.path[k * 3 + 1], pz = nav.path[k * 3 + 2];
@@ -113,12 +113,18 @@ abstract class Moves extends BuildState {
                 }
             }
             exitValid = true;
+            if (Builder.PARANOID) {
+                StringBuilder sb = new StringBuilder("(found at t" + ticks + ")");
+                for (int k = 0; k < Math.min(nav.length, 14); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2]));
+                exitTrace = sb.toString();
+            }
         }
         boolean plainOk = ok;
         if (!ok) { trapSearches++; ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); }
         if (Builder.PARANOID && !plainOk && ok && verbose && wayOutLogs++ < 400) {
             StringBuilder sb = new StringBuilder("wayOut from " + rel(x, y, z) + " only with scaffolding:");
             for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
+            sb.append("  <- ").append(String.valueOf((Object) StackWalker.getInstance().walk(st -> st.skip(1).limit(6).map(f -> f.getMethodName()).toList())));
             log(sb.toString());
         }
         if (!ok && breaking) {
@@ -166,6 +172,10 @@ abstract class Moves extends BuildState {
      * what carries it is among them), still get back to the chests without putting up anything new?
      */
     int unsafeLogs;
+    String sealDbg = "";
+    String exitTrace = "";
+    long alreadyShut;
+    long shutCount() { return alreadyShut; }
     int wayOutLogs;
     int lastExitExpanded;
     /** What the clean-up must keep (see exitLevel): the level the bot had when it set about the piece in hand. */
@@ -214,6 +224,14 @@ abstract class Moves extends BuildState {
 
     /** Would putting the block into (x,y,z) from where the bot stands close its own way out? */
     boolean sealsIn(int x, int y, int z, int t) {
+        sealDbg = "";
+        boolean r = sealsIn0(x, y, z, t);
+        if (WATCH != null && x - g.ox == WATCH[0] && y - g.oy == WATCH[1] && z - g.oz == WATCH[2])
+            log("WATCH sealsIn -> " + r + " walkThrough=" + StateInfo.walkThrough[t] + " ground=" + c.onGround() + " exitValid=" + exitValid + " state=" + StateInfo.name(t) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " stand=" + g.stand16(cx(), cy(), cz()) + " traps=" + trapsAvoided + " shut=" + alreadyShut + " dbg=" + sealDbg + " lastPlain=" + exitTrace);
+        return r;
+    }
+
+    boolean sealsIn0(int x, int y, int z, int t) {
         if (StateInfo.walkThrough[t] || !c.onGround()) return false;
         int bx = cx(), by = cy(), bz = cz();
         // (whatever is being closed off may be some way off: a hatch in the ceiling of the room the bot stands in)
@@ -221,7 +239,7 @@ abstract class Moves extends BuildState {
         int i = g.idx(x, y, z);
         // a block that takes the room the bot itself stands in (over its head while it sneaks on a fence or a slab:
         // the game allows that, and the bot could never stand up again)
-        if (g.stand16(bx, by, bz) >= 0) {
+        if (X_REL && g.stand16(bx, by, bz) >= 0) {
             char was = g.cur[i];
             g.cur[i] = (char) t;
             boolean wedged = g.stand16(bx, by, bz) < 0;
@@ -229,7 +247,20 @@ abstract class Moves extends BuildState {
             if (wedged) { trapsAvoided++; return true; }
         }
         // (the way out found last time still stands and this block is not in it)
-        if (exitValid && !exitCells.contains(i) && exitNodes.contains(g.idx(bx, by, bz))) { trapChecks++; return false; }
+        if (exitValid && !exitCells.contains(i) && exitNodes.contains(g.idx(bx, by, bz))) {
+            trapChecks++;
+            if (!Builder.PARANOID) return false;
+            // debugging: is the remembered way really still there?
+            char o2 = g.cur[i];
+            g.cur[i] = (char) t;
+            String cached = exitTrace;
+            boolean really = wayOut(bx, by, bz, acceptTraps);
+            g.cur[i] = o2;
+            if (really) return false;
+            if (wayOut(bx, by, bz, acceptTraps)) log("CACHE MISMATCH: remembered way out is gone with " + StateInfo.name(t) + " at " + rel(x, y, z) + "; it was: " + cached);
+            else log("CACHE MISMATCH: remembered way out is gone even without the block at " + rel(x, y, z) + "; it was: " + cached);
+            return false;
+        }
         char old = g.cur[i];
         g.cur[i] = (char) t;
         // (a block lent for the click is about to go again: no way out may count on it)
@@ -237,8 +268,12 @@ abstract class Moves extends BuildState {
         char helperWas = 0;
         if (hc >= 0 && hc != i) { helperWas = g.cur[hc]; g.cur[hc] = 0; }
         boolean trapped = !wayOut(bx, by, bz, acceptTraps);
-        if (hc >= 0 && hc != i) g.cur[hc] = helperWas;
+        sealDbg = "with block: trapped=" + trapped + " expanded=" + nav.expanded + " helper=" + hc;
         g.cur[i] = old;
+        // (no way out without the block either - shut in already, or too far for the search: then it is not this
+        // block that does it, and refusing everything from here on would only stop the work)
+        if (X_REL && trapped && !wayOut(bx, by, bz, acceptTraps)) { trapped = false; alreadyShut++; sealDbg += " | without: no way either, expanded=" + nav.expanded; }
+        if (hc >= 0 && hc != i) g.cur[hc] = helperWas;
         if (trapped) trapsAvoided++;
         return trapped;
     }
@@ -275,7 +310,7 @@ abstract class Moves extends BuildState {
             }
         }
         boxedExpanded = nav.expanded;
-        if (!ok && nav.expanded <= 3 && !(cx() == x && cy() == y && cz() == z) && unstick()) {
+        if (!ok && nav.expanded <= (X_UNSTICK ? 3 : 1) && !(cx() == x && cy() == y && cz() == z) && unstick()) {
             nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
         }
@@ -332,7 +367,7 @@ abstract class Moves extends BuildState {
         }
         // redstone dust, a torch, a flower ... in the cell the bot stands in (or at head height): nothing can be put
         // there while it is, so no column, no way up - out it comes (and is put back later)
-        if (c.onGround() && count(scaffoldItem) > 0) {
+        if (X_UNSTICK && c.onGround() && count(scaffoldItem) > 0) {
             for (int dy = 0; dy <= 1; dy++) {
                 if (!g.in(x0, y0 + dy, z0)) continue;
                 int st = g.get(x0, y0 + dy, z0);

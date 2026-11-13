@@ -512,9 +512,10 @@ abstract class BuildState extends Body {
     }
     long routesTravelled, routeSteps;
     abstract long stubsLeft();
+    abstract long shutCount();
     abstract long unsafeCount();
 
-    public String navStats() { return "ticksBy=" + tickUse + mainStats + " hurt=" + hurts + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 
     // ------------------------------------------------------------------ provided by the classes built on this one
@@ -528,6 +529,9 @@ abstract class BuildState extends Body {
     int[] goingAway;
     abstract boolean safeAfterRemoval(int sx, int sy, int sz);
     abstract int exitLevel(int x, int y, int z);
+    // switches for comparing the parts of a batch (to go once decided)
+    static final boolean X_EXIT = System.getenv("MCB_NO_EXIT") == null, X_REL = System.getenv("MCB_NO_REL") == null, X_UNSTICK = System.getenv("MCB_NO_UNSTICK") == null,
+        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null;
     /** The temporary block that lends a face to the placement in hand (see placeHelper), or -1. */
     int helperCell = -1;
     /** Set when a block was not placed because it would have shut the bot in where it stood. */
