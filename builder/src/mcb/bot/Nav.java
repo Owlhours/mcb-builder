@@ -125,6 +125,7 @@ public final class Nav {
     }
 
     private static final int[] DX = {1, -1, 0, 0}, DZ = {0, 0, 1, -1};
+    static final boolean X_FPILLAR = System.getenv("MCB_NO_FPILLAR") == null;
 
     /**
      * Cheapest route from the start cell to the goal cell. scaffoldOk says where temporary blocks may go (null = no
@@ -236,7 +237,7 @@ public final class Nav {
             }
             // standing on a fence or wall (half a block up in an empty cell): a jump still clears the cell, the block
             // goes onto the post
-            if (scaffoldOk != null && h > 0 && h <= 8 && !virtualStand && !dug && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
+            if (X_FPILLAR && scaffoldOk != null && h > 0 && h <= 8 && !virtualStand && !dug && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
                 && StateInfo.colTop[g.get(x, y - 1, z)] == 16 + h && !StateInfo.interactive[g.get(x, y - 1, z)]) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }

@@ -264,7 +264,7 @@ abstract class Moves extends BuildState {
         char old = g.cur[i];
         g.cur[i] = (char) t;
         // (a block lent for the click is about to go again: no way out may count on it)
-        int hc = helperCell;
+        int hc = System.getenv("MCB_NO_HELPER") == null ? helperCell : -1;
         char helperWas = 0;
         if (hc >= 0 && hc != i) { helperWas = g.cur[hc]; g.cur[hc] = 0; }
         boolean trapped = !wayOut(bx, by, bz, acceptTraps);

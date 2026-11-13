@@ -310,7 +310,9 @@ abstract class BuildState extends Body {
         if (z < g.oz - 1 || pistonFaces(x, y, z)) return false;
         if (g.tgt[g.idx(x, y, z)] == 0 || (brokenOut.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
-        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
+        // (X_NEXT: also in the column's next cell itself - the way out of a spot may be a pillar there; what the
+        // build wants in the cell waits, or the block is taken away first)
+        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)] || (X_NEXT && y == colNext[col(x, z)]);
     }
 
     /**
@@ -505,17 +507,19 @@ abstract class BuildState extends Body {
     /** Why the cell in hand was last put off (for the statistics). */
     String deferWhy = "?";
     final java.util.TreeMap<String, Integer> deferReasons = new java.util.TreeMap<>();
+    final java.util.TreeMap<String, Integer> blockedWhy = new java.util.TreeMap<>();
     /** State of the run when the main building was over: ticks, how they were spent, cells put off (by reason). */
     String mainStats = "";
     void noteMainDone(int deferredCells) {
-        mainStats = " MAIN ticks=" + ticks + " by=" + tickUse + " putOff=" + deferredCells + " why=" + deferReasons + " scaffoldStanding=" + scaffold.size() + " placed=" + placed + " plans=" + plans + " routes=" + routesTravelled + " routeSteps=" + routeSteps;
+        mainStats = " MAIN ticks=" + ticks + " by=" + tickUse + " putOff=" + deferredCells + " why=" + deferReasons + " triedInVain=" + blockedWhy + " scaffoldStanding=" + scaffold.size() + " placed=" + placed + " plans=" + plans + " routes=" + routesTravelled + " routeSteps=" + routeSteps;
     }
     long routesTravelled, routeSteps;
     abstract long stubsLeft();
+    abstract long retreatCount();
     abstract long shutCount();
     abstract long unsafeCount();
 
-    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + " retreats=" + retreatCount() + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 
     // ------------------------------------------------------------------ provided by the classes built on this one
@@ -531,7 +535,7 @@ abstract class BuildState extends Body {
     abstract int exitLevel(int x, int y, int z);
     // switches for comparing the parts of a batch (to go once decided)
     static final boolean X_EXIT = System.getenv("MCB_NO_EXIT") == null, X_REL = System.getenv("MCB_NO_REL") == null, X_UNSTICK = System.getenv("MCB_NO_UNSTICK") == null,
-        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null;
+        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null, X_NEXT = System.getenv("MCB_NEXT") != null;
     /** The temporary block that lends a face to the placement in hand (see placeHelper), or -1. */
     int helperCell = -1;
     /** Set when a block was not placed because it would have shut the bot in where it stood. */

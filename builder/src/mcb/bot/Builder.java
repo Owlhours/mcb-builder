@@ -143,7 +143,10 @@ public final class Builder extends Supplies {
                     undoRope();
                     if (scaffold.isEmpty()) break;
                     unreachable.clear();
-                    cleanup();
+                    // (this late nothing new is put up to get at what is left: it would only have to come down again -
+                    // a tower down a shaft for two blocks at its bottom ended as 28 blocks left instead of 2)
+                    noScaffoldNav = true;
+                    try { cleanup(); } finally { noScaffoldNav = false; }
                     undoRope();
                     if (scaffold.size() >= before) break;
                 }
@@ -296,6 +299,7 @@ public final class Builder extends Supplies {
         // watchdog: a long time without a single block placed or removed means the bot is going in circles
         if (placed + broken != progressMark) { progressMark = placed + broken; progressTick = ticks; }
         if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); setNext(x, z, scanColumn(x, y + 1, z)); badStand.clear(); return; }
+        guardHealth();
         int r = doCell(i);
         reconcile();
         if (PARANOID && paranoidLogs < 3 && c.onGround() && g.stand16(cx(), cy(), cz()) >= 0 && !wayOut(cx(), cy(), cz())) {
@@ -309,7 +313,7 @@ public final class Builder extends Supplies {
         if (r == DEFER) {
             // after a few vain tries the cell goes to the end of the queue so that the rest can go on
             if (tries.addTo(i, 1) >= 12) { deferred.add(i); deferReasons.merge(deferWhy, 1, Integer::sum); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
-            else blocked.put(i, surroundings(i));
+            else { blocked.put(i, surroundings(i)); blockedWhy.merge(deferWhy, 1, Integer::sum); }
             return;
         }
         blocked.remove(i);
@@ -343,6 +347,41 @@ public final class Builder extends Supplies {
                 if (cur == NONE || cur > wy) setNext(wx, wz, wy);
             }
         }
+    }
+
+    long retreats;
+    long retreatCount() { return retreats; }
+
+    /**
+     * Hurt (a magma floor, a brush with a campfire): get off whatever does it and wait until the damage has mended
+     * (the world is peaceful: health comes back by itself).
+     */
+    void guardHealth() {
+        if (c.player.getHealth() >= 10 || c.player.isDeadOrDying()) return;
+        retreats++;
+        if (verbose && retreats <= 5) log("hurt (health " + c.player.getHealth() + "): stepping aside to recover");
+        if (!rope.isEmpty()) undoRope();
+        int bx = cx(), by = cy(), bz = cz();
+        if (!safeSpot(bx, by, bz)) {
+            int best = -1, bestD = Integer.MAX_VALUE;
+            for (int dy = -3; dy <= 3; dy++) for (int dz = -8; dz <= 8; dz++) for (int dx = -8; dx <= 8; dx++) {
+                int x = bx + dx, y = by + dy, z = bz + dz;
+                if (!g.in(x, y, z) || !safeSpot(x, y, z)) continue;
+                int d = Math.abs(dx) + Math.abs(dz) + 2 * Math.abs(dy);
+                if (d < bestD && (d < 6 || tryCount++ < 40) && search(x, y, z, 800) && nav.scaffoldMoves == 0 && nav.towerMoves == 0) { bestD = d; best = g.idx(x, y, z); }
+            }
+            tryCount = 0;
+            if (best >= 0 && search(g.xOf(best), g.yOf(best), g.zOf(best), 800)) travel();
+        }
+        for (int n = 0; n < 500 && c.player.getHealth() < 18 && !c.player.isDeadOrDying(); n++) tick();
+    }
+
+    private int tryCount;
+
+    boolean safeSpot(int x, int y, int z) {
+        if (g.stand16(x, y, z) < 0) return false;
+        int below = g.get(x, y - 1, z);
+        return !StateInfo.hot[below] && !StateInfo.hot[g.get(x, y, z)];
     }
 
     static final boolean PARANOID = System.getenv("MCB_PARANOID") != null;
