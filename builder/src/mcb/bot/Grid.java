@@ -55,6 +55,7 @@ public final class Grid {
      */
     public int stand16(int x, int y, int z) {
         int a = get(x, y, z), b = get(x, y - 1, z);
+        if (StateInfo.hazard[a] || StateInfo.hazard[b]) return -1;   // (a lit campfire, magma, cactus ...: it would hurt)
         int h;
         int ta = StateInfo.colTop[a];
         if (StateInfo.walkThrough[a]) {
@@ -63,10 +64,14 @@ public final class Grid {
             h = tb - 16;
         } else if (ta > 0 && ta < 16 && StateInfo.colBottom[a] == 0 && StateInfo.anyTop[a] == ta) {
             h = ta;                                                 // a slab, carpet, snow layer ... in the feet cell
+            // (a carpet on a fence: the fence reaches up through it, and that is what carries the feet)
+            int over = StateInfo.colTop[b] - 16;
+            if (over > h) { if (StateInfo.anyTop[b] != StateInfo.colTop[b]) return -1; h = over; }
         } else return -1;
         // head room: the body occupies [h, h + 28.8] sixteenths above the cell bottom; anything solid in those cells is in the way
         int top = h + 29;
         int s1 = get(x, y + 1, z);
+        if (StateInfo.hazard[s1]) return -1;
         if (!StateInfo.walkThrough[s1] && 16 + StateInfo.anyBottom[s1] < top) return -1;
         if (top > 32) {
             int s2 = get(x, y + 2, z);

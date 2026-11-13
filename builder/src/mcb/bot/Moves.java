@@ -93,11 +93,34 @@ abstract class Moves extends BuildState {
         nav.startH = 0;
         Nav.MineRule keep = nav.mine;
         nav.mine = null;
-        // cheap test first: plenty of room to walk, climb and drop to from here means not shut in
+        // first with what stands (walking, dropping, the columns and ladders that are there): the usual case, and
+        // the way found is remembered so that the next blocks placed from here need no search at all. (This used to
+        // be "room for a hundred steps means not shut in" - which a hall or a shaft with a column in it passes too.)
         towersOff = true;
-        boolean ok = nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
+        boolean ok = nav.search(x, y, z, ax, ay, az, 5000, null);
         towersOff = false;
+        if (ok) {
+            exitNodes.clear(); exitCells.clear();
+            for (int k = 0; k < nav.length; k++) {
+                int px = nav.path[k * 3], py = nav.path[k * 3 + 1], pz = nav.path[k * 3 + 2];
+                if (!g.in(px, py, pz)) continue;
+                exitNodes.add(g.idx(px, py, pz));
+                int lo = py, hi = py + 2;
+                if (k > 0) { lo = Math.min(lo, nav.path[k * 3 - 2]); hi = Math.max(hi, nav.path[k * 3 - 2] + 2); }
+                for (int yy = lo; yy <= hi; yy++) {
+                    if (g.in(px, yy, pz)) exitCells.add(g.idx(px, yy, pz));
+                    if (k > 0 && g.in(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1])) exitCells.add(g.idx(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1]));
+                }
+            }
+            exitValid = true;
+        }
+        boolean plainOk = ok;
         if (!ok) { trapSearches++; ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); }
+        if (Builder.PARANOID && !plainOk && ok && verbose && wayOutLogs++ < 400) {
+            StringBuilder sb = new StringBuilder("wayOut from " + rel(x, y, z) + " only with scaffolding:");
+            for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
+            log(sb.toString());
+        }
         if (!ok && breaking) {
             nav.mine = this::mineTicks;
             nav.effort = 20;
@@ -111,6 +134,84 @@ abstract class Moves extends BuildState {
         return ok;
     }
 
+    /**
+     * A way from cell (x,y,z) to the supply chests that needs nothing new: walking, jumping, dropping, doors,
+     * ladders and the scaffolding columns that stand. (Searched in full: for the clean-up, where a room with a
+     * column in it must not pass for open.)
+     */
+    boolean plainWayOut(int x, int y, int z) {
+        trapChecks++;
+        Site.Stock first = stock.get(0);
+        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
+        byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
+        int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
+        nav.startH = 0;
+        Nav.MineRule keep = nav.mine;
+        nav.mine = null;
+        boolean wasOff = towersOff;
+        towersOff = true;
+        nav.effort = 8;
+        boolean ok;
+        try { ok = nav.search(x, y, z, ax, ay, az, 20000, null); }
+        finally { towersOff = wasOff; nav.effort = 1; nav.mine = keep; }
+        System.arraycopy(path, 0, nav.path, 0, path.length);
+        System.arraycopy(move, 0, nav.move, 0, move.length);
+        nav.length = len; nav.goalCost = cost; nav.scaffoldMoves = sm; nav.towerMoves = tm;
+        return ok;
+    }
+
+    /**
+     * With the cells in goingAway gone: can the bot, standing at (sx,sy,sz) (or wherever it lands from there when
+     * what carries it is among them), still get back to the chests without putting up anything new?
+     */
+    int unsafeLogs;
+    int wayOutLogs;
+    int lastExitExpanded;
+    /** What the clean-up must keep (see exitLevel): the level the bot had when it set about the piece in hand. */
+    int needLevel = 2;
+
+    /**
+     * How the bot could get from cell (x,y,z) to the chests: 2 = with nothing new (walking, the columns that stand,
+     * ladders, doors), 1 = only by putting up new scaffolding, 0 = not at all short of breaking through.
+     */
+    int exitLevel(int x, int y, int z) {
+        if (plainWayOut(x, y, z)) return 2;
+        Site.Stock first = stock.get(0);
+        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
+        byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
+        int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
+        nav.startH = 0;
+        Nav.MineRule keep = nav.mine;
+        nav.mine = null;
+        nav.effort = 8;
+        boolean ok;
+        try { ok = nav.search(x, y, z, ax, ay, az, 60000, this::scaffoldOk); }
+        finally { nav.effort = 1; nav.mine = keep; }
+        lastExitExpanded = nav.expanded;
+        System.arraycopy(path, 0, nav.path, 0, path.length);
+        System.arraycopy(move, 0, nav.move, 0, move.length);
+        nav.length = len; nav.goalCost = cost; nav.scaffoldMoves = sm; nav.towerMoves = tm;
+        return ok ? 1 : 0;
+    }
+
+    boolean safeAfterRemoval(int sx, int sy, int sz) {
+        if (goingAway == null) return true;
+        char[] was = new char[goingAway.length];
+        for (int k = 0; k < goingAway.length; k++) { was[k] = g.cur[goingAway[k]]; g.cur[goingAway[k]] = 0; }
+        try {
+            int ty = sy;
+            while (ty > g.y0 && g.stand16(sx, ty, sz) < 0 && g.passable(sx, ty, sz)) ty--;
+            if (g.stand16(sx, ty, sz) < 0) { if (TRACE && verbose && unsafeLogs++ < 40) log("unsafe: nowhere to stand at/below " + rel(sx, sy, sz)); return false; }
+            boolean ok = plainWayOut(sx, ty, sz);
+            if (!ok && TRACE && verbose && unsafeLogs++ < 40) log("unsafe: no plain way out from " + rel(sx, ty, sz) + " (asked " + rel(sx, sy, sz) + ") expanded=" + nav.expanded + " with " + goingAway.length + " cells gone from " + rel(g.xOf(goingAway[0]), g.yOf(goingAway[0]), g.zOf(goingAway[0])));
+            return ok;
+        } finally {
+            for (int k = 0; k < goingAway.length; k++) g.cur[goingAway[k]] = was[k];
+        }
+    }
+
     /** Would putting the block into (x,y,z) from where the bot stands close its own way out? */
     boolean sealsIn(int x, int y, int z, int t) {
         if (StateInfo.walkThrough[t] || !c.onGround()) return false;
@@ -118,9 +219,25 @@ abstract class Moves extends BuildState {
         // (whatever is being closed off may be some way off: a hatch in the ceiling of the room the bot stands in)
         if (Math.abs(x - bx) > 6 || Math.abs(z - bz) > 6 || y < by - 4 || y > by + 6 || !g.in(bx, by, bz)) return false;
         int i = g.idx(x, y, z);
+        // a block that takes the room the bot itself stands in (over its head while it sneaks on a fence or a slab:
+        // the game allows that, and the bot could never stand up again)
+        if (g.stand16(bx, by, bz) >= 0) {
+            char was = g.cur[i];
+            g.cur[i] = (char) t;
+            boolean wedged = g.stand16(bx, by, bz) < 0;
+            g.cur[i] = was;
+            if (wedged) { trapsAvoided++; return true; }
+        }
+        // (the way out found last time still stands and this block is not in it)
+        if (exitValid && !exitCells.contains(i) && exitNodes.contains(g.idx(bx, by, bz))) { trapChecks++; return false; }
         char old = g.cur[i];
         g.cur[i] = (char) t;
+        // (a block lent for the click is about to go again: no way out may count on it)
+        int hc = helperCell;
+        char helperWas = 0;
+        if (hc >= 0 && hc != i) { helperWas = g.cur[hc]; g.cur[hc] = 0; }
         boolean trapped = !wayOut(bx, by, bz, acceptTraps);
+        if (hc >= 0 && hc != i) g.cur[hc] = helperWas;
         g.cur[i] = old;
         if (trapped) trapsAvoided++;
         return trapped;
@@ -157,7 +274,8 @@ abstract class Moves extends BuildState {
                 if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
             }
         }
-        if (!ok && nav.expanded <= 1 && !(cx() == x && cy() == y && cz() == z) && unstick()) {
+        boxedExpanded = nav.expanded;
+        if (!ok && nav.expanded <= 3 && !(cx() == x && cy() == y && cz() == z) && unstick()) {
             nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
         }
@@ -191,6 +309,7 @@ abstract class Moves extends BuildState {
      * No step can even be planned from where the bot is (wedged against something that fell beside it, standing
      * on an odd shape ...): shuffle and hop about until it stands in a different, ordinary spot.
      */
+    int boxedExpanded;
     boolean unstick() {
         if (ticks - lastUnstick < 200) return false;
         lastUnstick = ticks;
@@ -208,6 +327,28 @@ abstract class Moves extends BuildState {
                 unreachable.clear();
                 unstuck++;
                 if (verbose) log("unstuck: opened " + StateInfo.name(st) + " at " + rel(qx, qy, qz) + " around the bot");
+                return true;
+            }
+        }
+        // redstone dust, a torch, a flower ... in the cell the bot stands in (or at head height): nothing can be put
+        // there while it is, so no column, no way up - out it comes (and is put back later)
+        if (c.onGround() && count(scaffoldItem) > 0) {
+            for (int dy = 0; dy <= 1; dy++) {
+                if (!g.in(x0, y0 + dy, z0)) continue;
+                int st = g.get(x0, y0 + dy, z0);
+                int ci = g.idx(x0, y0 + dy, z0);
+                if (st == 0 || !StateInfo.noCollision[st] || scaffold.contains(ci) || StateInfo.doorEdges[st] != 0) continue;
+                int bt = breakTicks(st);
+                if (bt < 0 || bt > 200) continue;
+                var e = c.eye();
+                if (!findBreak(x0, y0 + dy, z0, e.x, e.y, e.z, click) || !breakBlock(x0, y0 + dy, z0, click.ax, click.ay, click.az, bt + 40)) continue;
+                spent(st);
+                if (g.tgt[ci] != 0) { deferred.add(ci); brokenOut.add(ci); }
+                settle();
+                nav.blockedEdges.clear();
+                unreachable.clear();
+                unstuck++;
+                if (verbose) log("unstuck: took " + StateInfo.name(st) + " out of the bot's own cell at " + rel(x0, y0 + dy, z0));
                 return true;
             }
         }
@@ -249,6 +390,7 @@ abstract class Moves extends BuildState {
                 return true;
             }
         }
+        if (boxedExpanded > 1) return false;   // (the rest is for a bot that cannot take a single step)
         for (int round = 0; round < 2; round++) {
             for (int d = 0; d < 4; d++) {
                 c.look(yawTo(DXH[d], DZH[d]), 0);
@@ -445,9 +587,11 @@ abstract class Moves extends BuildState {
         if (TRACE && verbose) {
             StringBuilder sb = new StringBuilder("route:");
             for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
+            sb.append("  <- ").append(String.valueOf((Object) StackWalker.getInstance().walk(st -> st.skip(2).limit(5).map(f -> f.getMethodName()).toList())));
             log(sb.toString());
         }
         int i = 1;
+        routesTravelled++; routeSteps += n - 1;
         tPath = path; tMove = move;
         while (i < n) {
             byte m = move[i];
@@ -864,7 +1008,7 @@ abstract class Moves extends BuildState {
         c.keys(false, false, false, false, true, sneak, false);
         boolean ok = false;
         for (int n = 0; n < 14; n++) {
-            if (!ok && c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) c.clickUse();
+            if (!ok && c.y() >= y + 1.0 && g.get(x, y, z) == 0) c.clickUse();   // (y0 is y, or half a block more on a fence)
             tick();
             if (n == 0) c.keys(false, false, false, false, false, sneak, false);
             if (g.get(x, y, z) != 0) ok = true;

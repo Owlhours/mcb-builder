@@ -234,6 +234,12 @@ public final class Nav {
                 && (virtualStand || dug || flatTop(g.get(x, y - 1, z)))) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }
+            // standing on a fence or wall (half a block up in an empty cell): a jump still clears the cell, the block
+            // goes onto the post
+            if (scaffoldOk != null && h > 0 && h <= 8 && !virtualStand && !dug && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
+                && StateInfo.colTop[g.get(x, y - 1, z)] == 16 + h && !StateInfo.interactive[g.get(x, y - 1, z)]) {
+                relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
+            }
             // last resort: break the block of the build underfoot and drop to whatever is below
             if (mine != null && !virtualStand && !floorTower && h == 0 && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
                 int t = mine.ticks(x, y - 1, z);
