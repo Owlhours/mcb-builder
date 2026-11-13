@@ -310,9 +310,10 @@ abstract class BuildState extends Body {
         if (z < g.oz - 1 || pistonFaces(x, y, z)) return false;
         if (g.tgt[g.idx(x, y, z)] == 0 || (brokenOut.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
-        // (X_NEXT: also in the column's next cell itself - the way out of a spot may be a pillar there; what the
-        // build wants in the cell waits, or the block is taken away first)
-        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)] || (X_NEXT && y == colNext[col(x, z)]);
+        // (relaxNext: also in the column's next cell itself. Only for ways out and for routes that cannot be had
+        // otherwise - the way off a spot may be a pillar there (f20cfe46); as a general rule it put loose blocks
+        // next to observers and pistons and cost three small redstone builds their pass.)
+        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)] || (relaxNext && y == colNext[col(x, z)]);
     }
 
     /**
@@ -516,6 +517,7 @@ abstract class BuildState extends Body {
     }
     long routesTravelled, routeSteps;
     abstract long stubsLeft();
+    abstract long relaxedCount();
     abstract long retreatCount();
     abstract long shutCount();
     abstract long unsafeCount();
@@ -524,7 +526,7 @@ abstract class BuildState extends Body {
     public String metrics() {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
             + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount()
-            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided;
+            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided;
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
     long shutEpisodes, firstShut;
@@ -548,6 +550,8 @@ abstract class BuildState extends Body {
     // switches for comparing the parts of a batch (to go once decided)
     static final boolean X_EXIT = System.getenv("MCB_NO_EXIT") == null, X_REL = System.getenv("MCB_NO_REL") == null, X_UNSTICK = System.getenv("MCB_NO_UNSTICK") == null,
         X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null, X_NEXT = System.getenv("MCB_NO_NEXT") == null;
+    /** Set while a search may put temporary blocks into a column's next cell (see scaffoldOk). */
+    boolean relaxNext;
     /** The temporary block that lends a face to the placement in hand (see placeHelper), or -1. */
     int helperCell = -1;
     /** Set when a block was not placed because it would have shut the bot in where it stood. */

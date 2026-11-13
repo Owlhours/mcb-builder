@@ -96,6 +96,8 @@ abstract class Moves extends BuildState {
         // first with what stands (walking, dropping, the columns and ladders that are there): the usual case, and
         // the way found is remembered so that the next blocks placed from here need no search at all. (This used to
         // be "room for a hundred steps means not shut in" - which a hall or a shaft with a column in it passes too.)
+        boolean relaxWas = relaxNext;
+        relaxNext = X_NEXT;
         towersOff = true;
         boolean ok = X_EXIT ? nav.search(x, y, z, ax, ay, az, 5000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
         towersOff = false;
@@ -134,6 +136,7 @@ abstract class Moves extends BuildState {
             nav.effort = 1;
         }
         nav.mine = keep;
+        relaxNext = relaxWas;
         System.arraycopy(path, 0, nav.path, 0, path.length);
         System.arraycopy(move, 0, nav.move, 0, move.length);
         nav.length = len; nav.goalCost = cost; nav.scaffoldMoves = sm; nav.towerMoves = tm;
@@ -172,6 +175,8 @@ abstract class Moves extends BuildState {
      * what carries it is among them), still get back to the chests without putting up anything new?
      */
     int unsafeLogs;
+    long relaxedRoutes;
+    long relaxedCount() { return relaxedRoutes; }
     String sealDbg = "";
     String exitTrace = "";
     long alreadyShut;
@@ -197,8 +202,10 @@ abstract class Moves extends BuildState {
         nav.mine = null;
         nav.effort = 8;
         boolean ok;
+        boolean relaxWas = relaxNext;
+        relaxNext = X_NEXT;
         try { ok = nav.search(x, y, z, ax, ay, az, 60000, this::scaffoldOk); }
-        finally { nav.effort = 1; nav.mine = keep; }
+        finally { nav.effort = 1; nav.mine = keep; relaxNext = relaxWas; }
         lastExitExpanded = nav.expanded;
         System.arraycopy(path, 0, nav.path, 0, path.length);
         System.arraycopy(move, 0, nav.move, 0, move.length);
@@ -308,6 +315,18 @@ abstract class Moves extends BuildState {
             } finally {
                 if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
             }
+        }
+        if (!ok && X_NEXT && !relaxNext && !(cx() == x && cy() == y && cz() == z)) {
+            // no route by the usual rules: one more try with temporary blocks allowed in a column's next cell
+            relaxNext = true;
+            if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = 120; nav.scaffoldPenalty = 170; nav.effort = 4; }
+            try {
+                ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+            } finally {
+                relaxNext = false;
+                if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
+            }
+            if (ok) relaxedRoutes++;
         }
         boxedExpanded = nav.expanded;
         if (!ok && nav.expanded <= (X_UNSTICK ? 3 : 1) && !(cx() == x && cy() == y && cz() == z) && unstick()) {
