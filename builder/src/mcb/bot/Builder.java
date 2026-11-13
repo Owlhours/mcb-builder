@@ -483,7 +483,8 @@ public final class Builder extends Supplies {
             if (below == 0 || StateInfo.walkThrough[below] || StateInfo.replaceable[below] || (g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)))) { deferWhy = "gravity block without support"; return DEFER; }
         }
         int r = attempt(x, y, z, t, sp, true);
-        boolean noFace = r == DEFER && "no face to click from anywhere".equals(deferWhy);
+        // (the last resorts below wait until everything else stands: see placeHelper)
+        boolean noFace = mainDone && r == DEFER && "no face to click from anywhere".equals(deferWhy);
         if (r == DEFER) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
             int helper = placeHelper(x, y, z, sp);
