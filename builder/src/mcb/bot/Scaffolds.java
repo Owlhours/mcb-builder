@@ -158,7 +158,7 @@ abstract class Scaffolds extends Stances {
     }
 
     /** Set while a block lent for a click is being taken away again (that one always goes). */
-    static final boolean CAREFUL = System.getenv("MCB_NO_CAREFUL") == null;   // (switch for the comparison; to go once decided)
+    static final boolean CAREFUL = System.getenv("MCB_CAREFUL") != null;   // (switch for the comparison; to go once decided)
     boolean mustRemove;
     long keptForExit;
 

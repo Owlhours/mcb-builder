@@ -299,6 +299,7 @@ public final class Builder extends Supplies {
         // watchdog: a long time without a single block placed or removed means the bot is going in circles
         if (placed + broken != progressMark) { progressMark = placed + broken; progressTick = ticks; }
         if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); setNext(x, z, scanColumn(x, y + 1, z)); badStand.clear(); return; }
+        monitorExit();
         guardHealth();
         int r = doCell(i);
         reconcile();
@@ -347,6 +348,27 @@ public final class Builder extends Supplies {
                 if (cur == NONE || cur > wy) setNext(wx, wz, wy);
             }
         }
+    }
+
+    static final boolean MONITOR = System.getenv("MCB_NO_MONITOR") == null;
+    private long lastMonitor = -100000;
+    private boolean wasShut;
+
+    /**
+     * The safety invariant, sampled: from where the bot stands there is a way back to the chests (2 = with what
+     * stands, 1 = with new scaffolding, 0 = none). Counts episodes of "none" and when the first began. Reads only:
+     * the searches it makes leave no trace in what the bot remembers (checked: same ticks with and without).
+     */
+    void monitorExit() {
+        if (!MONITOR || ticks - lastMonitor < 600 || !c.onGround() || !g.in(cx(), cy(), cz()) || g.stand16(cx(), cy(), cz()) < 0) return;
+        lastMonitor = ticks;
+        int tc = (int) trapChecks;
+        int level = exitLevel(cx(), cy(), cz());
+        trapChecks = tc;
+        exitSamples[level]++;
+        boolean shut = level == 0;
+        if (shut && !wasShut) { shutEpisodes++; if (firstShut == 0) firstShut = ticks; }
+        wasShut = shut;
     }
 
     long retreats;

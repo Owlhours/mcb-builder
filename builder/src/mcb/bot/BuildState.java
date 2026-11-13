@@ -511,6 +511,7 @@ abstract class BuildState extends Body {
     /** State of the run when the main building was over: ticks, how they were spent, cells put off (by reason). */
     String mainStats = "";
     void noteMainDone(int deferredCells) {
+        mainTicksAt = ticks; putOffAtMain = deferredCells; scaffoldAtMain = scaffold.size();
         mainStats = " MAIN ticks=" + ticks + " by=" + tickUse + " putOff=" + deferredCells + " why=" + deferReasons + " triedInVain=" + blockedWhy + " scaffoldStanding=" + scaffold.size() + " placed=" + placed + " plans=" + plans + " routes=" + routesTravelled + " routeSteps=" + routeSteps;
     }
     long routesTravelled, routeSteps;
@@ -518,6 +519,17 @@ abstract class BuildState extends Body {
     abstract long retreatCount();
     abstract long shutCount();
     abstract long unsafeCount();
+
+    /** Counters for the result file (one column, key=value;...): what happened to the bot, apart from the verdict. */
+    public String metrics() {
+        return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
+            + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount()
+            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided;
+    }
+    /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
+    long shutEpisodes, firstShut;
+    final long[] exitSamples = new long[3];
+    long mainTicksAt, putOffAtMain, scaffoldAtMain;
 
     public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + " retreats=" + retreatCount() + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
@@ -535,7 +547,7 @@ abstract class BuildState extends Body {
     abstract int exitLevel(int x, int y, int z);
     // switches for comparing the parts of a batch (to go once decided)
     static final boolean X_EXIT = System.getenv("MCB_NO_EXIT") == null, X_REL = System.getenv("MCB_NO_REL") == null, X_UNSTICK = System.getenv("MCB_NO_UNSTICK") == null,
-        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null, X_NEXT = System.getenv("MCB_NEXT") != null;
+        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null, X_NEXT = System.getenv("MCB_NO_NEXT") == null;
     /** The temporary block that lends a face to the placement in hand (see placeHelper), or -1. */
     int helperCell = -1;
     /** Set when a block was not placed because it would have shut the bot in where it stood. */
