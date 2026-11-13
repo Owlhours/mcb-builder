@@ -316,8 +316,10 @@ abstract class Moves extends BuildState {
                 if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
             }
         }
-        if (!ok && X_NEXT && !relaxNext && !(cx() == x && cy() == y && cz() == z)) {
-            // no route by the usual rules: one more try with temporary blocks allowed in a column's next cell
+        if (!ok && X_NEXT && !relaxNext && nav.expanded <= 400 && !(cx() == x && cy() == y && cz() == z)) {
+            // no route by the usual rules, and hardly anywhere to go from here (a bot that can roam fails to reach a
+            // goal because of the goal, and searching twice only costs time - 02dc970d took three times as long):
+            // one more try with temporary blocks allowed in a column's next cell
             relaxNext = true;
             if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = 120; nav.scaffoldPenalty = 170; nav.effort = 4; }
             try {
