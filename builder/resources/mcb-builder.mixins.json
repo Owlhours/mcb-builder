@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "mcb.mod.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": ["CommandsMixin", "ServerTickMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "mcb-builder",
+  "version": "${version}",
+  "name": "MCB Builder",
+  "description": "A bot that builds schematics the way a survival player would: walking, jumping, climbing, placing and breaking within reach, taking its blocks from supply chests. /mcb build <schematic> [x y z].",
+  "license": "All rights reserved",
+  "environment": "*",
+  "entrypoints": { "main": ["mcb.mod.McbMod"] },
+  "mixins": ["mcb-builder.mixins.json"],
+  "depends": { "fabricloader": ">=0.19.5", "minecraft": "26.2", "java": ">=25" }
+}
