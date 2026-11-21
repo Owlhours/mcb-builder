@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "mcbc.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": ["MinecraftMixin", "MinecraftAccessor", "DeltaTimerAccessor", "LocalPlayerAccessor", "ClientLevelAccessor", "PredictionAccessor", "ClientLevelMixin", "GameModeMixin", "GameModeAccessor", "PacketListenerMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
