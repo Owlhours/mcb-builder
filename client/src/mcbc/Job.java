@@ -387,7 +387,7 @@ public final class Job {
         if (Driver.DEBUG) remember(f);
     }
 
-    long edgeGuards;
+    long edgeGuards, signsClosed, lastUseTick = -1000;
 
     /** Would the player, a little further along its way, stand over a drop that hurts? */
     private boolean dangerousStep(net.minecraft.client.player.LocalPlayer p) {

@@ -61,6 +61,11 @@ public final class Safety {
             if (s.getBlock() instanceof BaseFireBlock) return "fire at " + q.toShortString();
         }
         // the owner
+        // a sign the bot just placed opens the sign editor, as for a player: it closes it (blank, as Escape does)
+        if (mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen sign && j.client != null && j.client.realTicks - j.lastUseTick < 40) {
+            sign.onClose();
+            j.signsClosed++;
+        }
         if (mc.gui.screen() != null && !(mc.gui.screen() instanceof AbstractContainerScreen)) {
             if (mc.gui.screen() instanceof ChatScreen) return CHAT;
             return "screen open (" + mc.gui.screen().getClass().getSimpleName() + ")";

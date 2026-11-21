@@ -62,7 +62,7 @@ public final class Driver {
         if (f.useClick) {
             boolean ok = hitMatches(mc, f);
             if (DEBUG) McbcMod.event("use: hit=" + describe(mc.hitResult) + " expect=" + f.expectPos + "/" + f.expectFace + " ok=" + ok + " yaw=" + mc.player.getYRot() + " pitch=" + mc.player.getXRot());
-            if (ok) { acc.mcbc$startUseItem(); j.client.usedThisTick = true; }
+            if (ok) { acc.mcbc$startUseItem(); j.client.usedThisTick = true; j.lastUseTick = j.client.realTicks; }
             else j.client.droppedClicks++;
         }
         attackHeld = f.attackHeld && !instant;
