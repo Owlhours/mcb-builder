@@ -93,7 +93,9 @@ public final class Safety {
         for (int y = net.minecraft.util.Mth.floor(feet); y > feet - 64 && y > level.getMinY(); y--) {
             BlockState s = level.getBlockState(q.set(x, y, z));
             if (!s.getFluidState().isEmpty()) return 0;
-            if (s.is(net.minecraft.tags.BlockTags.CLIMBABLE) || s.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock
+            // (a ladder or vines catch a fall; scaffolding does not: from above one lands on its top)
+            if (s.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock) return Math.max(0, feet - (y + 1));
+            if (s.is(net.minecraft.tags.BlockTags.CLIMBABLE)
                 || s.getBlock() instanceof net.minecraft.world.level.block.BedBlock || s.getBlock() instanceof net.minecraft.world.level.block.SlimeBlock
                 || s.getBlock() instanceof net.minecraft.world.level.block.HayBlock || s.getBlock() instanceof net.minecraft.world.level.block.PowderSnowBlock) return 0;
             var shape = s.getCollisionShape(level, q);

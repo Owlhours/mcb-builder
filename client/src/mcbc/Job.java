@@ -289,16 +289,28 @@ public final class Job {
 
     /** The last frames applied (for the log when the server moves the player). */
     private final String[] recent = new String[24];
+    private static java.io.PrintWriter trace;
+    static {
+        if (Driver.DEBUG) try {
+            trace = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("logs/mcb-trace.log"),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND), true);
+        } catch (java.io.IOException e) { trace = null; }
+    }
     private int nRecent;
     private void remember(Client.Frame f) {
         var p = mc.player;
         recent[nRecent++ % recent.length] = String.format(java.util.Locale.ROOT, "t%d pos=%.3f,%.3f,%.3f v=%.3f,%.3f,%.3f ground=%s keys=%s%s%s%s%s%s%s use=%s att=%s/%s yaw=%.1f pitch=%.1f item=%s",
             client.realTicks, p.getX(), p.getY(), p.getZ(), p.getDeltaMovement().x, p.getDeltaMovement().y, p.getDeltaMovement().z, p.onGround(),
             f.forward ? "F" : "", f.back ? "B" : "", f.left ? "L" : "", f.right ? "R" : "", f.jump ? "J" : "", f.sneak ? "S" : "", f.sprint ? "R" : "",
-            f.useClick, f.attackClick, f.attackHeld, f.yaw, f.pitch, p.getMainHandItem().getItem());
+            f.useClick, f.attackClick, f.attackHeld, f.yaw, f.pitch, p.getMainHandItem().getItem())
+            + " act=" + (builder != null ? ModView.activity(builder) : "-") + " note=" + client.note + (f.waitFrame ? " wait" : "");
+        if (trace != null) trace.println(System.currentTimeMillis() + " " + recent[(nRecent - 1) % recent.length]);
     }
 
+    void onServerMoveTrace() { if (trace != null) trace.println(System.currentTimeMillis() + " SETBACK " + mc.player.position()); }
+
     void onServerMove() {
+        onServerMoveTrace();
         if (Driver.DEBUG && client != null) {
             StringBuilder sb = new StringBuilder("frames before the server move:");
             for (int k = Math.max(0, nRecent - 12); k < nRecent; k++) sb.append("\n    ").append(recent[k % recent.length]);
@@ -401,7 +413,8 @@ public final class Job {
         double feet = p.getY();
         for (int y = net.minecraft.util.Mth.floor(feet) - 1; y > feet - 40; y--) {
             BlockState s = level.getBlockState(q.set(net.minecraft.util.Mth.floor(cx), y, net.minecraft.util.Mth.floor(cz)));
-            if (!s.getFluidState().isEmpty() || s.is(net.minecraft.tags.BlockTags.CLIMBABLE) || s.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock) return false;
+            if (s.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock) return feet - (y + 1) > Config.maxFall16 / 16.0;
+            if (!s.getFluidState().isEmpty() || s.is(net.minecraft.tags.BlockTags.CLIMBABLE)) return false;
             var shape = s.getCollisionShape(level, q);
             if (!shape.isEmpty()) return feet - (y + shape.max(Direction.Axis.Y)) > Config.maxFall16 / 16.0;
         }

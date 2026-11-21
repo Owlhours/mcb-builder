@@ -100,8 +100,9 @@ abstract class BuildState extends Body {
         while (ty > fy - 40) {
             int s = g.get(fx, ty, fz);
             boolean gone = fx == x && fz == z && goneAt.test(ty);
-            if (!gone && s != 0 && (StateInfo.scaffolding[s] || StateInfo.rung[s] != 0)) return false;   // (caught on the way)
-            if (!gone && s != 0 && !StateInfo.walkThrough[s]) break;
+            if (!gone && s != 0 && StateInfo.rung[s] != 0) return false;   // (caught on the way by a ladder)
+            // (scaffolding is no catch: a player falling onto it from above lands on its top and takes the damage)
+            if (!gone && s != 0 && (!StateInfo.walkThrough[s] || StateInfo.scaffolding[s])) break;
             ty--;
         }
         return (fy - (ty + 1)) * 16 > Nav.MAX_FALL16;

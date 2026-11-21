@@ -121,6 +121,7 @@ public class Body {
     }
 
     private boolean follow0(int[] path, int from, int n) {
+        c.note = "follow";
         int i = from;
         failedStep = -1;
         int stuck = 0;
@@ -209,15 +210,21 @@ public class Body {
         return Math.abs(x + 0.5 - c.x()) < 0.2 && Math.abs(z + 0.5 - c.z()) < 0.2;
     }
 
-    /** Inside a scaffolding column at (x,z): rise (jump held) until the feet are at level toY, on top of the block below it. */
+    /** Inside a scaffolding column at (x,z): rise (jump held) until the feet are at level toY, on top of the block below it.
+     *  (MCB client) The jump is let go at a tick chosen so that the hop out of the top does not end a hair above the top
+     *  of the column: a player that comes to rest there one tick before it lands (airborne, within a thousandth of a
+     *  block of the surface) is set back by the server. The vanilla climbing physics are simulated for that (CLIMB_SIM). */
     public boolean climb(int x, int toY, int z) {
+        c.note = "climb>" + toY;
         c.holdAttack(false);
         int budget = 30 + 12 * Math.max(0, toY - cy());
         for (int n = 0; n < budget && c.y() < toY; n++) {
             double dx = x + 0.5 - c.x(), dz = z + 0.5 - c.z();
             boolean drift = dx * dx + dz * dz > 0.01;
             if (drift) c.look(yawTo(dx, dz), c.pitch());
-            c.keys(drift, false, false, false, true, false, false);
+            boolean jump = true;
+            if (CLIMB_SIM && !nearTouch(c.y(), c.velocity().y, c.onGround(), false, toY) && nearTouch(c.y(), c.velocity().y, c.onGround(), true, toY)) { jump = false; climbGaps++; }
+            c.keys(drift, false, false, false, jump, false, false);
             tick();
         }
         c.releaseKeys();
@@ -225,8 +232,42 @@ public class Body {
         return c.onGround() && cy() == toY && cx() == x && cz() == z;
     }
 
+    public static final boolean CLIMB_SIM = System.getenv("MCB_NO_CLIMBSIM") == null;
+    public long climbGaps;
+
+    /**
+     * Vanilla vertical motion in a scaffolding column whose cells below toY are climbable: from feet y, velocity v, with
+     * jump held this tick if {@code jumpNow} and afterwards while the feet are below toY (the climb() policy). True if the
+     * way out of the top ends a tick airborne within 0.002 of the top (a near touch), or does not get out within 80 ticks
+     * (then holding is worse only if the other choice is clean - see the caller).
+     */
+    static boolean nearTouch(double y, double v, boolean ground, boolean jumpNow, int toY) {
+        final double G = 0.08, D = 0.98F;
+        boolean first = true;
+        for (int t = 0; t < 80; t++) {
+            boolean climbable = Math.floor(y) < toY;
+            boolean jump = first ? jumpNow : y < toY;
+            first = false;
+            double move;
+            if (ground && jump) { move = 0.42F; ground = false; }
+            else move = climbable ? Math.max(v, -0.15) : v;
+            if (ground && move < 0) move = 0;
+            double ny = y + move;
+            if (!climbable && move < 0 && ny <= toY) {
+                // lands on the top of the column this tick; the tick before it ended at y
+                return y - toY > 0 && y - toY < 0.002;
+            }
+            if (climbable && ny < toY - 1 + 1e-9 && move < 0) return false;   // (slid back to the floor inside: no landing on top)
+            y = ny;
+            v = ((jump && climbable) ? 0.2 : move) - G;
+            v *= D;
+        }
+        return false;
+    }
+
     /** On or inside a scaffolding column at (x,z): sink (sneak held) until the feet are at level toY. */
     public boolean descend(int x, int toY, int z) {
+        c.note = "descend>" + toY;
         c.holdAttack(false);
         int budget = 30 + 10 * Math.max(0, cy() - toY);
         c.keys(false, false, false, false, false, true, false);
@@ -466,6 +507,7 @@ public class Body {
 
     /** Breaks the block at (x,y,z) by aiming at the given point on it and holding attack. */
     public boolean breakBlock(int x, int y, int z, double ax, double ay, double az, int maxTicks) {
+        c.note = "break " + x + "," + y + "," + z;
         int before = g.get(x, y, z);
         if (before == 0) return true;
         // (MCB client) only cells of the build box and the bot's own temporary blocks are ever broken
