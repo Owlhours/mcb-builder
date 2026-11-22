@@ -124,15 +124,18 @@ cd client
 ./build.sh            # -> client/build/mcb-client-0.2.0.jar
 ```
 
-You need a JDK 25, `curl`, `unzip` and `python3`. The script downloads into `client/.deps/` the vanilla 26.2
-client jar and its libraries from Mojang, plus Fabric Loader, Mixin and Fabric API from the Fabric Maven. It
-checks each against a pinned SHA-1. None of those files are in this repository.
+You need a JDK 25, `curl`, `unzip` and `python3`. The script downloads into `.deps/` at the top of the repository
+the vanilla 26.2 client jar and its libraries from Mojang, plus Fabric Loader, Mixin and Fabric API from the
+Fabric Maven. It checks each against a pinned SHA-1 (`adapter/versions/26.2.env`). None of those files are in this
+repository.
 
 | path | what |
 |---|---|
-| `src/mcb/` | the planner, shared with the singleplayer mod, with client changes: real-world sites and containers, fall-damage-safe drops, Grim-friendly climbing |
-| `src/mcb/env/` | the live-client versions of the keyboard-and-mouse interface and the placement oracle |
-| `src/mcbc/` | the client mod: commands, safety checks, the lockstep driver, mixins |
+| `../core/` | the planner, the same code as the singleplayer mod's; the client's world is described by `mcb.bot.Rules.client` (fall-damage-safe drops, only its own blocks broken outside the box, the world re-read, the timed climb out of scaffolding) and its registered containers by `Site` |
+| `../adapter/src/mcb/mc` | the bridge to the game both mods share |
+| `../adapter/client/src/mcbc/` | the client mod: `LocalClient` and `ClientOracle` (the planner's body and oracle on your own player), commands, safety checks, the lockstep driver, mixins |
+
+The client planner's behaviour is checked headless, without a Minecraft client, by `../tools/client-check.sh`.
 
 ## License
 

@@ -53,6 +53,19 @@ use them only to compile. They are never committed or redistributed. Every push 
 [GitHub Actions](.github/workflows/ci.yml), which also runs `tools/check-public-tree.sh`: it fails if game files,
 schematics or compiled code are anywhere in the repository or its history.
 
+## For developers
+
+The planner is plain Java with no Minecraft classes (`core/`); everything that touches the game is in `adapter/`.
+Four pieces can be taken on their own, each with a README and a runnable example:
+the [schematic readers](core/src/mcb/schem/README.md), the [judge](core/src/mcb/build/README.md), the
+[route search](core/src/mcb/bot/README.md) and the [placement oracle](adapter/README.md).
+
+Before and after a change, run `tools/test.sh` (unit tests, no game needed), `gate/gate.sh` (31 test builds,
+generated in code, built by the real bot in the headless game; every tick and count must match) and
+`tools/client-check.sh` (the client mod's planner). CI runs all three. [docs/DESIGN.md](docs/DESIGN.md) explains
+the layout and how "nothing changed" was checked when it was reorganised;
+[docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) what you are walking into.
+
 ## How it was made
 
 The code was written by Claude agents in an automated loop against a fixed benchmark, over ten days in November 2026,

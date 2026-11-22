@@ -13,6 +13,8 @@ jobs:
           fetch-depth: 0
       - name: No game files or binaries in the repository (whole history)
         run: tools/check-public-tree.sh --history
+      - name: Only adapter/ uses Minecraft's classes
+        run: tools/check-core.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,6 +32,8 @@ jobs:
         run: client/build.sh
       - name: Regression gate (the generated test builds, in the headless game)
         run: gate/gate.sh
+      - name: Client mod's planner check (the old client planner and the shared one, side by side)
+        run: tools/client-check.sh
       - name: Checksums
         run: |
           mkdir -p dist

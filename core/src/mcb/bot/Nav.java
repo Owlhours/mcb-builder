@@ -154,7 +154,9 @@ public final class Nav {
     /** Number of scaffolding blocks the route adds to columns. */
     public int towerMoves;
 
+    /** A route search over the grid; {@code scaffold} holds the cells (grid indices) of the bot's own temporary blocks. */
     public Nav(Grid g, IntOpenHashSet scaffold) {
+        Ray.init();   // (the search tests outline shapes; Body does this too, it is done once)
         this.g = g;
         this.scaffold = scaffold;
         int n = g.cur.length;

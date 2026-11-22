@@ -81,18 +81,23 @@ cd builder
 
 You need a JDK 25, `curl` and `unzip`. Minecraft 26.2 is not obfuscated, so the mod compiles directly against
 the vanilla server classes, with no Gradle and no remapping. On the first run the script downloads the vanilla
-server jar from Mojang, plus Fabric Loader and Mixin from the Fabric Maven, into `builder/.deps/`, and checks their
-SHA-1s. None of those files are in this repository.
+server jar from Mojang, plus Fabric Loader and Mixin from the Fabric Maven, into `.deps/` at the top of the
+repository, and checks their SHA-1s (pinned in `adapter/versions/26.2.env`). None of those files are in this
+repository.
 
 ### Layout
 
+The mod is the shared planner plus the singleplayer glue:
+
 | path | what |
 |---|---|
-| `src/mcb/bot` | the bot: build order, stances, movement, route search, scaffolding, supplies |
-| `src/mcb/env` | the keyboard-and-mouse client interface, the bot player, and the placement oracle |
-| `src/mcb/build` | the build site, the target, the judge |
-| `src/mcb/schem` | schematic readers (`.litematic`, `.schem`, `.nbt`, `.schematic`) |
-| `src/mcb/mod` | the Fabric entry point, commands, and the tick-loop mixins |
+| `../core/src/mcb/bot` | the planner: build order, stances, movement, route search, scaffolding, supplies (no Minecraft classes) |
+| `../core/src/mcb/build`, `../core/src/mcb/schem` | the site, the target, the judge, the block tables; schematic readers |
+| `../adapter/src/mcb/mc` | the bridge to the game: block tables from the game's definitions, schematic states, survival rules |
+| `../adapter/server/src/mcb/env` | the server-side bot player, its keyboard-and-mouse body, the placement oracle, the supply chests |
+| `../adapter/builder/src/mcb/mod` | the Fabric entry point, commands, and the tick-loop mixins |
+
+See [../docs/DESIGN.md](../docs/DESIGN.md) for why it is laid out this way, and run `../gate/gate.sh` after a change.
 
 Some features can be switched off with `MCB_NO_*` environment variables, for comparing behaviour. They are all
 on by default.

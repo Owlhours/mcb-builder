@@ -14,7 +14,8 @@ The bot was developed and measured against Mojang's own 26.2 server code, not a 
 - **The body.** `mcb.env.BotPlayer` is an ordinary server-side player entity. Its movement comes from the
   unmodified vanilla physics, fed by key states exactly as the vanilla client's `LocalPlayer` and
   `KeyboardInput` produce them. Those code paths were transcribed from the 26.2 client classes.
-- **Keyboard and mouse only.** `mcb.env.Client` is the bot's only way to observe or act. It can:
+- **Keyboard and mouse only.** `mcb.game.Client` is the bot's only way to observe or act (implemented here by
+  `mcb.env.BotClient`). It can:
   - turn the view;
   - hold movement, jump, sneak and sprint;
   - left- and right-click, or hold either;
@@ -26,17 +27,19 @@ The bot was developed and measured against Mojang's own 26.2 server code, not a 
   reach, placement rules, break times and container rules are all enforced by the game. What the crosshair rests
   on comes from the same ray cast the client uses. The bot learns about block changes only from the block-update
   packets its client is sent.
-- **The rules oracle.** `mcb.env.Oracle` answers "if I click there, holding this, looking that way, what
-  appears?" by running the game's own placement code without placing anything. It is used two ways:
+- **The rules oracle.** `mcb.env.ServerOracle` (an `mcb.game.Oracle`) answers "if I click there, holding this,
+  looking that way, what appears?" by running the game's own placement code without placing anything. It is used two ways:
   - to tabulate, per item, what each combination of face, part of the face, view direction (32 yaw × 9 pitch
     classes) and sneaking produces;
   - to double-check every click just before it's made.
 
   It can't change the world.
 
-The client mod keeps the same `Client` and `Oracle` API with a different implementation behind it. There,
-`Client` drives the real `LocalPlayer` through a per-tick frame, the bot runs on its own thread in lockstep with
-the game, and `Oracle` runs the client's copy of the placement code.
+The client mod implements the same `Client` and `Oracle` interfaces differently (`mcbc.LocalClient`,
+`mcbc.ClientOracle`). There, the body drives the real `LocalPlayer` through a per-tick frame, the bot runs on its own
+thread in lockstep with the game, and the oracle runs the client's copy of the placement code. The planner is the
+same code in both mods; what differs about the client's world is set in `mcb.bot.Rules` (see
+[DESIGN.md](DESIGN.md)).
 
 ## 2. How a build is made
 

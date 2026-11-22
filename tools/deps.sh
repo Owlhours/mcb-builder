@@ -5,7 +5,8 @@
 #   server_cp                  -> $SERVER_CP: the vanilla dedicated server jar and its bundled libraries
 #   fabric_cp                  -> $FABRIC_CP: Fabric Loader and Sponge Mixin
 #   client_cp                  -> $CLIENT_CP: the vanilla client jar and its libraries, plus Fabric API modules
-#   junit_cp                   -> $JUNIT_CP: the JUnit 5 console launcher (tests only)
+#   fastutil_cp                -> $FASTUTIL_CP: fastutil, the planner's only library (core/ without the game)
+#   junit_cp                   -> $JUNIT_CP: the JUnit console launcher (tests only)
 #
 # The pins for each Minecraft version are in adapter/versions/<version>.env.
 # Needs: bash, curl, unzip (or a JDK's jar), sha1sum, python3 (client only).
@@ -83,6 +84,11 @@ EOF
     for m in fabric-command-api-v2 fabric-key-mapping-api-v1 fabric-api-base; do
         CLIENT_CP="$CLIENT_CP:$(ls "$F"/META-INF/jars/$m-*.jar | head -1)"
     done
+}
+
+fastutil_cp() {   # the one library the planner (core/) uses, from Maven Central (the game bundles the same version)
+    fetch "https://repo1.maven.org/maven2/it/unimi/dsi/fastutil/$FASTUTIL/fastutil-$FASTUTIL.jar" "$DEPS/fastutil-$FASTUTIL.jar" "$FASTUTIL_SHA1"
+    FASTUTIL_CP="$DEPS/fastutil-$FASTUTIL.jar"
 }
 
 junit_cp() {

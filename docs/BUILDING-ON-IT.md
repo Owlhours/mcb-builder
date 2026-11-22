@@ -23,15 +23,17 @@ else. The bot builds well, but the code was written for one benchmark, and that 
 
 ## Technical debts
 
-- **It's tied to Minecraft 26.2.** The code compiles against the unobfuscated vanilla 26.2 classes and uses
-  internal APIs: server packet handlers, the placement code, the physics, `BlockState` ids. Expect breakage on
-  every Minecraft update. There's no abstraction over the game version.
-- **The client mod is a fork of the planner.** `client/src/mcb/` is a copy of `builder/src/mcb/` with
-  client-specific changes in most of the bot classes: `Body`, `BuildState`, `Builder`, `Grid`, `Moves`, `Nav`,
-  `Scaffolds`, `Supplies` and `Site`. `Client` and `Oracle` are separate implementations. There is no shared module;
-  a fix in one copy must be ported by hand.
-- **There are no tests in this repository.** The development tests were whole-corpus runs in the simulator, which
-  isn't here. A change you make can't be checked against the benchmark without that setup.
+- **It's built for one game version at a time.** The planner itself (`core/`) uses no Minecraft classes, but the
+  adapter (`adapter/`) uses the game's internals: server packet handlers, the placement code, the physics, block
+  definitions. A new Minecraft version means checking and adapting the adapter; that is the only place that changes
+  (see [../adapter/versions/](../adapter/versions/)).
+- **The benchmark is not here.** The development tests were whole-corpus runs in the simulator, on builds that are
+  other people's work and can't be published. What is here: unit tests (`tools/test.sh`), a regression gate of 31
+  generated test builds that catches any change in what the bot does (`gate/gate.sh`), and a check of the client
+  mod's planner (`tools/client-check.sh`). They tell you whether you changed the bot's behaviour, not whether you
+  made it better; for that you need the simulator in [mcb-sim](https://github.com/Owlhours/mcb-sim) and a corpus of
+  your own. (Until 2026-11-22 there were no tests at all, and the client mod had its own copy of the planner;
+  [DESIGN.md](DESIGN.md) says how that was undone.)
 - **The planner blocks while it thinks.** In the singleplayer mod it runs between server ticks, so the game can
   hitch for a moment on big builds. The client mod runs it on its own thread in lockstep: the game waits while it
   thinks, up to `maxThinkMs`.
@@ -55,25 +57,33 @@ else. The bot builds well, but the code was written for one benchmark, and that 
 
 ## Using it in your own project
 
-**The seams you can use:**
-- **`mcb.env.Client`, the body.** The planner only ever calls this class. Both mods prove that it can be swapped:
-  one implementation drives a server-side bot player, the other your real `LocalPlayer`. To put the planner in a
-  different body (another client framework, a headless protocol client, a different player entity), write
-  another `Client` with the same methods.
-- **`mcb.env.Oracle`, the placement rules.** "What would this click produce?", answered with the game's own code.
-  It's useful on its own for anything that places blocks in a specific state.
+**The seams you can use** (each with a README and a runnable example):
+- **`mcb.game.Client`, the body.** The planner only ever acts through this interface. Two implementations ship:
+  `mcb.env.BotClient` drives a server-side bot player, `mcbc.LocalClient` your real `LocalPlayer`. To put the
+  planner in a different body (another client framework, a headless protocol client, a different player entity),
+  implement it. See [core/src/mcb/bot/README.md](../core/src/mcb/bot/README.md).
+- **`mcb.game.Oracle`, the placement rules.** "What would this click produce?", answered with the game's own code
+  (`mcb.env.ServerOracle`, `mcbc.ClientOracle`). Useful on its own for anything that places blocks in a specific
+  state. See [adapter/README.md](../adapter/README.md).
 - **`mcb.bot.Nav`, route search.** A weighted A* search over a player's real moves: walking, jumping, dropping,
-  sprinting, ladders, scaffolding, doors and gates. It runs over `Grid`, the bot's picture of the area.
+  sprinting, ladders, scaffolding, doors and gates, and temporary blocks where allowed. It runs over `Grid`, the
+  bot's picture of the area, and needs no game. See [core/src/mcb/bot/README.md](../core/src/mcb/bot/README.md).
 - **`mcb.build.Judge`, the self-check.** It compares a world region with a schematic section by section. It's
-  useful for any "is it built right?" check, whoever built it.
+  useful for any "is it built right?" check, whoever built it, and needs no game. See
+  [core/src/mcb/build/README.md](../core/src/mcb/build/README.md).
 - **`mcb.schem`, the readers.** These read `.litematic`, Sponge `.schem` (v1–3), structure `.nbt` and old
   `.schematic` files into one normal form. They need nothing but a JDK; see
   [core/src/mcb/schem/README.md](../core/src/mcb/schem/README.md).
 
+The block facts the planner and the judge read come from tables (`mcb.build.StateInfo`) that the adapter fills
+from the game; tests and examples fill them from a small made-up palette instead (`SimplePalette`).
+
 **Entry point.** Both mods wire the planner up the same way:
-`new Builder(client, grid, site, oracle).run()` blocks until the build is done or stopped. `Grid` takes the box,
-`Site` takes the target and the supplies, and `Target` normalises the schematic. Read `builder/src/mcb/mod/Job.java`
-(singleplayer) or `client/src/mcbc/Job.java` (client) for the full setup.
+`new Builder(client, grid, site, oracle, rules).run()` blocks until the build is done or stopped. `Grid` takes the
+box, `Site` takes the target and the supplies, `Target` normalises the schematic, and `Rules` says what the world is
+like (`Rules.headless()` or `Rules.client(maxFall16)`). Read `adapter/builder/src/mcb/mod/Job.java` (singleplayer),
+`adapter/client/src/mcbc/Job.java` (client) or `adapter/headless/src/mcb/headless/BuildRun.java` (headless) for the
+full setup.
 
 **For the uses people have asked about:**
 - **A companion bot that plays alongside you.** The planner assumes it owns the build box. It needs a lock or
