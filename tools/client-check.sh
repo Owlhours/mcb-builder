@@ -41,7 +41,7 @@ final class ClientPlanner {
 EOF
 compile "$W/old/classes" "$SERVER_CP" "$W/old/client/src" "$W/old/adapter/src" "$W/old/adapter/headless/src" "$W/old/shim" "$W/old/gate/src"
 # ---- the new side
-compile "$W/new/classes" "$SERVER_CP" core/src adapter/src adapter/headless/src gate/src
+compile "$W/new/classes" "$SERVER_CP" core/src adapter/src adapter/server/src adapter/headless/src gate/src
 # ---- run both
 J=${J:-$(nproc 2>/dev/null || echo 2)}; [ "$J" -gt 8 ] && J=8
 jobs=()

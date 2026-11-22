@@ -13,7 +13,7 @@ import net.minecraft.network.protocol.PacketFlow;
 /**
  * A network connection with no socket behind it. Everything the server sends to the "client" is handed to
  * {@link #sink}; nothing is ever received (the bot's inputs are delivered by calling the server's packet
- * handlers directly, see {@link Client}).
+ * handlers directly, see {@link BotClient}).
  */
 public final class FakeConnection extends Connection {
     public Consumer<Packet<?>> sink = p -> { };

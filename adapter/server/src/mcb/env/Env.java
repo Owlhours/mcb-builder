@@ -27,7 +27,7 @@ import net.minecraft.world.level.storage.LevelStorageSource;
 /**
  * The game: an unmodified Minecraft 26.2 server (the headless "game test" flavour: flat world, no network)
  * created and ticked on the calling thread. This class is the administrator's side (world setup, ticking);
- * the bot never touches it directly and only talks to {@link Client}.
+ * the bot never touches it directly and only talks to {@link BotClient}.
  */
 public final class Env {
     public final net.minecraft.server.MinecraftServer server;
@@ -230,6 +230,7 @@ public final class Env {
     public static Env boot(Path universe) throws Exception {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+        mcb.mc.BlockFacts.install();
         if (Files.exists(universe)) {
             try (var s = Files.walk(universe)) { s.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete()); }
         }
@@ -294,11 +295,11 @@ public final class Env {
     }
 
     /** Adds the bot's player to the world in survival mode with an empty inventory. */
-    public Client join(String name, double x, double y, double z) {
+    public BotClient join(String name, double x, double y, double z) {
         GameProfile profile = new GameProfile(UUID.nameUUIDFromBytes(("mcb:" + name).getBytes()), name);
         BotPlayer player = new BotPlayer(server, level, profile, viewDistance);
         FakeConnection conn = new FakeConnection();
-        Client client = new Client(this, player, conn);
+        BotClient client = new BotClient(this, player, conn);
         // join where the work is, not at the world spawn (which would load and send the whole spawn area first)
         player.snapTo(x, y, z, 0.0f, 0.0f);
         server.getPlayerList().placeNewPlayer(conn, player, CommonListenerCookie.createInitial(profile, false));

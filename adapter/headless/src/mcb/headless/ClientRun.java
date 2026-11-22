@@ -10,7 +10,7 @@ import mcb.build.Judge;
 import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.build.Target;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
 import mcb.schem.Schem;
 import net.minecraft.core.BlockPos;
@@ -53,7 +53,7 @@ public final class ClientRun {
         public boolean died;
     }
 
-    private static mcb.env.Oracle oracle;
+    private static mcb.env.ServerOracle oracle;
 
     /** The client mod's default (Config.maxFall16). */
     public static int maxFall16 = 56;
@@ -98,7 +98,7 @@ public final class ClientRun {
         for (Container c : containers) findAccess(env, c, gx0, gz0, gx1, gz1, oy);
         env.pinSite(gx0 - 2, gz0 - 2, gx1 + 2, gz1 + 2, ox, oz - 2);
         int seed = System.getenv("MCB_SEED") == null ? 0 : Integer.parseInt(System.getenv("MCB_SEED"));
-        Client client = env.join("Bot" + (ox / 64), ox + 0.5 + Math.floorMod(seed, Math.max(1, Math.min(target.sx, 12))), oy, oz - 2 + 0.5);
+        BotClient client = env.join("Bot" + (ox / 64), ox + 0.5 + Math.floorMod(seed, Math.max(1, Math.min(target.sx, 12))), oy, oz - 2 + 0.5);
         for (int i = 0; i < 3; i++) client.tick();
         client.clearChanges();
         // ---- the grid from the world (mcbc.Job.run)
@@ -107,22 +107,22 @@ public final class ClientRun {
         Grid grid = new Grid(ox, oy, oz, target.sx, target.sy, target.sz, target.ids, gx0, gz0, nx, nz, ny, Block.getId(Blocks.GRASS_BLOCK.defaultBlockState()), false);
         var level = env.level;
         grid.outside = (x, y, z) -> {
-            if (!Client.loaded(level, x, z)) return stone;
+            if (!BotClient.loaded(level, x, z)) return stone;
             int id = Block.getId(level.getBlockState(new BlockPos(x, y, z)));
             return StateInfo.air[id] ? 0 : id;
         };
         BlockPos.MutableBlockPos q = new BlockPos.MutableBlockPos();
         for (int y = oy - 1; y <= gy1; y++) for (int z = gz0; z <= gz1; z++) for (int x = gx0; x <= gx1; x++) {
-            int id = Client.loaded(level, x, z) ? Block.getId(level.getBlockState(q.set(x, y, z))) : stone;
+            int id = BotClient.loaded(level, x, z) ? Block.getId(level.getBlockState(q.set(x, y, z))) : stone;
             grid.cur[grid.idx(x, y, z)] = (char) (StateInfo.air[id] ? 0 : id);
         }
         client.clearChanges();
         client.takeLoadedChunks();
-        if (oracle == null) oracle = new mcb.env.Oracle(env);
+        if (oracle == null) oracle = new mcb.env.ServerOracle(env);
         // ---- read the containers
         Site site0 = new Site(target, ox, oy, oz, carried(client));
         for (Container c : containers) {
-            Site.Stock st = new Site.Stock(Items.AIR, 0, c.pos.getX(), c.pos.getY(), c.pos.getZ(), 0);
+            Site.Stock st = new Site.Stock(mcb.build.ItemInfo.AIR, 0, c.pos.getX(), c.pos.getY(), c.pos.getZ(), 0);
             st.ax = c.ax; st.ay = c.ay; st.az = c.az; st.px = c.px; st.py = c.py; st.pz = c.pz;
             site0.stock.add(st);
             site0.containerBlocks.add(c.pos.asLong());
@@ -133,7 +133,7 @@ public final class ClientRun {
         reader.survey();
         out.surveyFailures = reader.surveyFailures.size();
         if (System.getenv("MCB_CLIENTRUN_DEBUG") != null) for (String f : reader.surveyFailures) System.out.println("SURVEY " + f + " (bot at " + client.x() + "," + client.y() + "," + client.z() + ")");
-        Map<Item, Integer> have = carried(client);
+        Map<Integer, Integer> have = carried(client);
         for (Site.Stock s : site0.stock) if (s.count > 0) have.merge(s.item, s.count, Integer::sum);
         Site site = new Site(target, ox, oy, oz, have);
         site.stock.addAll(site0.stock);
@@ -145,11 +145,11 @@ public final class ClientRun {
         try {
             b.clearBox(i -> {
                 int w = grid.cur[i];
-                float h = StateInfo.state[w].getBlock().defaultDestroyTime();
-                int bt = h < 0 ? -1 : (int) Math.ceil(h * (StateInfo.state[w].requiresCorrectToolForDrops() ? 100 : 30) * 1.05f) + 1;
+                float h = StateInfo.destroyTime[w];
+                int bt = h < 0 ? -1 : (int) Math.ceil(h * (StateInfo.needsTool[w] ? 100 : 30) * 1.05f) + 1;
                 if (bt < 0 || bt > 200) return false;
                 if (!grid.inBox(grid.xOf(i), grid.yOf(i), grid.zOf(i))) return false;
-                if (StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return false;
+                if (mcb.mc.BlockFacts.state(w).getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return false;
                 return !site.containerBlocks.contains(BlockPos.asLong(grid.xOf(i), grid.yOf(i), grid.zOf(i)));
             });
             b.run();
@@ -162,7 +162,7 @@ public final class ClientRun {
         out.refusedBreaks = b.refusedBreaks; out.fallBreaksRefused = b.fallBreaksRefused; out.died = b.died;
         out.trace = client.trace;
         for (int i = 0; i < 5; i++) env.tickServer();
-        out.judge = Judge.judge(target, site.snapshot(env.level), env.level);
+        out.judge = Judge.judge(target, site.snapshot(mcb.mc.Convert.view(env.level)), new mcb.mc.GameSurvival(env.level));
         env.server.getPlayerList().remove(client.player);
         env.wipe(grid.x0, oy, grid.z0, grid.x0 + grid.nx - 1, oy + grid.ny, grid.z0 + grid.nz - 1);
         for (int i = 0; i < 3; i++) env.tickServer();
@@ -171,19 +171,19 @@ public final class ClientRun {
         return out;
     }
 
-    static Map<Item, Integer> carried(Client c) {
-        Map<Item, Integer> m = new LinkedHashMap<>();
-        for (int i = 0; i < 36; i++) { ItemStack s = c.inventorySlot(i); if (!s.isEmpty()) m.merge(s.getItem(), s.getCount(), Integer::sum); }
+    static Map<Integer, Integer> carried(BotClient c) {
+        Map<Integer, Integer> m = new LinkedHashMap<>();
+        for (int i = 0; i < 36; i++) { mcb.game.Stack s = c.inventorySlot(i); if (!s.isEmpty()) m.merge(s.getItem(), s.getCount(), Integer::sum); }
         return m;
     }
 
     /** The depot's chest layout (mcb.env.Depot.setUp), filled the same way; returns the west block of each double chest. */
     static List<BlockPos> placeChests(Env env, Target target, Site dry, int ox, int oy, int oz, int scaffoldCount, int towerCount) {
-        Map<Item, Integer> need = dry.requirements();
+        Map<Integer, Integer> need = dry.requirements();
         List<ItemStack> stacks = new ArrayList<>();
-        addStacks(stacks, dry.scaffoldItem, scaffoldCount);
+        addStacks(stacks, mcb.mc.BlockFacts.item(dry.scaffoldItem), scaffoldCount);
         addStacks(stacks, Items.SCAFFOLDING, towerCount);
-        for (Map.Entry<Item, Integer> e : need.entrySet()) { int n = e.getValue(); addStacks(stacks, e.getKey(), n + Math.max(4, n / 20)); }
+        for (Map.Entry<Integer, Integer> e : need.entrySet()) { int n = e.getValue(); addStacks(stacks, mcb.mc.BlockFacts.item(e.getKey()), n + Math.max(4, n / 20)); }
         int perChest = 45, perStack = perChest * STACK_HEIGHT;
         int chestStacks = Math.max(1, (stacks.size() + perStack - 1) / perStack);
         int depotCols = Math.max(3, Math.min(24, (target.sx + 1) / 2));

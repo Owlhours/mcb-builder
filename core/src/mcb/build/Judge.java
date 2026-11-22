@@ -40,8 +40,7 @@ public final class Judge {
      *  The judge only: the bot's own picture keeps cellOk. */
     public static boolean rightCell(int target, int world) {
         if (cellOk(target, world)) return true;
-        return StateInfo.state[target].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO
-            && StateInfo.state[world].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO_SAPLING;
+        return StateInfo.bamboo[target] && StateInfo.bambooShoot[world];
     }
 
     public static boolean cellOk(int target, int world) {
@@ -61,8 +60,9 @@ public final class Judge {
     /** The ground the judged target stands on (the sim's GROUND_TOP: grass, two dirt, bedrock, air below). */
     static final int GROUND_TOP = -61;
 
-    /** Methods of the view that fell through to the real level (for checking the port; should stay empty). */
-    public static final java.util.Set<String> viewFallThrough = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** The survival rule {@link #judge(Target, char[])} uses (the adapter sets the game's; without one, only the
+     *  name-based classes and unsupported gravity blocks make a cell impossible). */
+    public static Survival defaultSurvival;
 
     /** Blocks whose item cannot be had in survival and which nothing in survival makes in place (sim `not_in_survival`). */
     static boolean notInSurvival(String name) {
@@ -74,18 +74,16 @@ public final class Judge {
         }
     }
 
-    static String blockName(int id) {
-        return net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(StateInfo.state[id].getBlock()).getPath();
-    }
+    static String blockName(int id) { return StateInfo.blockName[id]; }
 
     /**
      * The cells whose target state cannot exist in survival, by class ("no item", "no item in survival", "live coral",
      * "cannot stay"), in the target as judged standing on the ground; "cannot stay" by the game's own canSurvive (and
      * gravity blocks over nothing), applied until nothing changes. Decoration and game-master blocks are left out of
      * the result (they are exempt anyway). Port of the sim's `build::impossible_cells`.
-     * @param base a real level, only for methods of the view that are not about blocks, fluids or light
+     * @param survival the game's survival rule (null: every block can stay where it is)
      */
-    public static String[] impossibleCells(Target t, net.minecraft.world.level.LevelReader base) {
+    public static String[] impossibleCells(Target t, Survival survival) {
         StateInfo.init();
         final int sx = t.sx, sy = t.sy, sz = t.sz, oy = GROUND_TOP + 1;
         final char[] w = t.ids.clone();
@@ -94,7 +92,7 @@ public final class Judge {
             int a = t.ids[i];
             if (a == 0) continue;
             String name = blockName(a);
-            if (StateInfo.item[a] == net.minecraft.world.item.Items.AIR) cls[i] = "no item";
+            if (StateInfo.item[a] == ItemInfo.AIR) cls[i] = "no item";
             else if (notInSurvival(name)) cls[i] = "no item in survival";
             else if (name.contains("coral") && !name.startsWith("dead_")) cls[i] = "live coral";
         }
@@ -102,52 +100,32 @@ public final class Judge {
         // come out of the test world as well, and what hangs from them falls with them; the final filter keeps them out)
         for (int i = 0; i < t.ids.length; i++) { int a = t.ids[i]; if (a != 0 && cls[i] == null && StateInfo.gameMaster(a)) cls[i] = "game master"; }
         for (int i = 0; i < cls.length; i++) if (cls[i] != null) w[i] = 0;
-        final net.minecraft.world.level.block.state.BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
-            grass = net.minecraft.world.level.block.Blocks.GRASS_BLOCK.defaultBlockState(),
-            dirt = net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState(),
-            bedrock = net.minecraft.world.level.block.Blocks.BEDROCK.defaultBlockState();
-        java.util.function.Function<net.minecraft.core.BlockPos, net.minecraft.world.level.block.state.BlockState> at = q -> {
-            int x = q.getX(), y = q.getY() - oy, z = q.getZ();
-            if (x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz) return StateInfo.state[w[(y * sz + z) * sx + x]];
-            int qy = q.getY();
+        final int air = StateInfo.defaultState("air"), grass = StateInfo.defaultState("grass_block"), dirt = StateInfo.defaultState("dirt"),
+            bedrock = StateInfo.defaultState("bedrock");
+        BlockView at = (x, qy, z) -> {
+            int y = qy - oy;
+            if (x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz) return w[(y * sz + z) * sx + x];
             if (qy > GROUND_TOP) return air;
             if (qy == GROUND_TOP) return grass;
             if (qy >= GROUND_TOP - 2) return dirt;
             if (qy == GROUND_TOP - 3) return bedrock;
             return air;
         };
-        java.lang.reflect.InvocationHandler h = (proxy, m, args) -> {
-            String n = m.getName();
-            if (args != null && args.length >= 1 && args[0] instanceof net.minecraft.core.BlockPos q) {
-                if (n.equals("getBlockState") && args.length == 1) return at.apply(q);
-                if (n.equals("getFluidState") && args.length == 1) return net.minecraft.world.level.material.Fluids.EMPTY.defaultFluidState();
-                if (n.equals("getRawBrightness") || n.equals("getMaxLocalRawBrightness")) return 15;
-                if (n.equals("getBlockEntity") && args.length == 1) return null;
-            }
-            if (n.equals("getBrightness") && args != null && args.length == 2) return 15;
-            if (m.isDefault()) return java.lang.reflect.InvocationHandler.invokeDefault(proxy, m, args);
-            viewFallThrough.add(n);
-            if (base == null) throw new UnsupportedOperationException(n);
-            try { return m.invoke(base, args); } catch (java.lang.reflect.InvocationTargetException e) { throw e.getCause(); }
-        };
-        net.minecraft.world.level.LevelReader view = (net.minecraft.world.level.LevelReader) java.lang.reflect.Proxy.newProxyInstance(
-            net.minecraft.world.level.LevelReader.class.getClassLoader(), new Class<?>[] {net.minecraft.world.level.LevelReader.class}, h);
-        net.minecraft.core.BlockPos.MutableBlockPos q = new net.minecraft.core.BlockPos.MutableBlockPos();
         while (true) {
             IntArrayListLite gone = new IntArrayListLite();
             for (int i = 0; i < t.ids.length; i++) {
                 int a = t.ids[i];
                 if (a == 0 || cls[i] != null) continue;
                 int x = i % sx, y = i / (sx * sz), z = (i / sx) % sz;
-                q.set(x, oy + y, z);
                 boolean falls = false;
                 if (StateInfo.gravity[a]) {
-                    int b = net.minecraft.world.level.block.Block.getId(at.apply(new net.minecraft.core.BlockPos(x, oy + y - 1, z)));
+                    int b = at.stateAt(x, oy + y - 1, z);
                     falls = b == 0 || StateInfo.air[b] || StateInfo.replaceable[b];
                 }
                 boolean ok;
                 if (falls) ok = false;
-                else { try { ok = StateInfo.state[a].canSurvive(view, q.immutable()); } catch (RuntimeException e) { ok = true; } }
+                else if (survival == null) ok = true;
+                else { try { ok = survival.canSurvive(a, x, oy + y, z, at); } catch (RuntimeException e) { ok = true; } }
                 if (!ok) gone.add(i);
             }
             if (gone.n != 0) { for (int k = 0; k < gone.n; k++) { cls[gone.a[k]] = "cannot stay"; w[gone.a[k]] = 0; } continue; }
@@ -196,15 +174,10 @@ public final class Judge {
     }
 
     /** The sim's Kind::ChainBlock: the block class is exactly ChainBlock (the kinds table is by class name). */
-    static boolean isChainBlock(int s) { return s != 0 && StateInfo.state[s].getBlock().getClass() == net.minecraft.world.level.block.ChainBlock.class; }
+    static boolean isChainBlock(int s) { return s != 0 && StateInfo.chain[s]; }
     private static boolean isChain(Target t, String[] cls, int i) { return t.ids[i] != 0 && cls[i] == null && isChainBlock(t.ids[i]); }
     /** 0 = x, 1 = y, 2 = z (the sim reads the state's name: axis=x / axis=z, else y). */
-    static int chainAxis(int s) {
-        var st = StateInfo.state[s];
-        if (!st.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS)) return 1;
-        var a = st.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS);
-        return a == net.minecraft.core.Direction.Axis.X ? 0 : a == net.minecraft.core.Direction.Axis.Z ? 2 : 1;
-    }
+    static int chainAxis(int s) { return StateInfo.axis[s]; }
     /** The two neighbours of cell i along axis ax inside the target box (-1 where there is none). */
     private static int[] chainNbrs(int i, int ax, int sx, int sy, int sz) {
         int x = i % sx, y = i / (sx * sz), z = (i / sx) % sz, plane = sx * sz;
@@ -221,13 +194,13 @@ public final class Judge {
     }
 
     /** @param world the built region's states, same layout as target.ids */
-    public static Result judge(Target t, char[] world) { return judge(t, world, null); }
+    public static Result judge(Target t, char[] world) { StateInfo.init(); return judge(t, world, defaultSurvival); }
 
-    /** @param base a real level for the impossible-cell view (see {@link #impossibleCells}) */
-    public static Result judge(Target t, char[] world, net.minecraft.world.level.LevelReader base) {
+    /** @param survival the game's survival rule for the impossible-cell rule (see {@link #impossibleCells}) */
+    public static Result judge(Target t, char[] world, Survival survival) {
         StateInfo.init();
         Result r = new Result();
-        String[] imp = IMPOSSIBLE ? impossibleCells(t, base) : null;
+        String[] imp = IMPOSSIBLE ? impossibleCells(t, survival) : null;
         int nx = (t.sx + 15) >> 4, ny = (t.sy + 15) >> 4, nz = (t.sz + 15) >> 4;
         for (int cy = 0; cy < ny; cy++) for (int cz = 0; cz < nz; cz++) for (int cx = 0; cx < nx; cx++) {
             int tgt = 0, bad = 0, vol = 0, tgtW = 0, badW = 0;

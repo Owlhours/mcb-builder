@@ -1,11 +1,12 @@
 package mcb.bot;
 
+import mcb.build.ItemInfo;
+import mcb.game.Stack;
+import mcb.game.Vec3;
+import mcb.game.SlotClick;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.Vec3;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * Low-level skills: keeping the grid in sync, walking a path cell by cell, jumping, dropping, aiming and clicking,
@@ -42,10 +43,10 @@ public class Body {
         if (ticks >= maxTicks) throw new OutOfTime();
         c.tick();
         ticks++;
-        float hp = c.player.getHealth();
+        float hp = c.health();
         if (hp < lastHealth && lastHealth >= 0) { hurts++; if (hurtAt == null) hurtAt = String.format("%.1f,%.1f,%.1f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz); }
         lastHealth = hp;
-        if (c.player.isDeadOrDying()) { died = true; throw new OutOfTime(); }
+        if (c.dead()) { died = true; throw new OutOfTime(); }
         sync();
     }
 
@@ -60,18 +61,16 @@ public class Body {
     long reconciled;
     protected void refreshFromWorld() {
         for (long cp : c.takeLoadedChunks()) {
-            int ccx = net.minecraft.world.level.ChunkPos.getX(cp) << 4, ccz = net.minecraft.world.level.ChunkPos.getZ(cp) << 4;
+            int ccx = Client.chunkX(cp) << 4, ccz = Client.chunkZ(cp) << 4;
             readCells(Math.max(g.x0, ccx), Math.min(g.x0 + g.nx - 1, ccx + 15), g.y0, g.y0 + g.ny - 1, Math.max(g.z0, ccz), Math.min(g.z0 + g.nz - 1, ccz + 15));
         }
         if ((ticks & 127) == 0) readCells(Math.max(g.x0, cx() - 6), Math.min(g.x0 + g.nx - 1, cx() + 6), Math.max(g.y0, cy() - 4), Math.min(g.y0 + g.ny - 1, cy() + 6), Math.max(g.z0, cz() - 6), Math.min(g.z0 + g.nz - 1, cz() + 6));
     }
     private void readCells(int x0, int x1, int y0, int y1, int z0, int z1) {
         if (x0 > x1 || z0 > z1 || y0 > y1) return;
-        var level = c.level();
-        if (!mcb.env.Client.loaded(level, x0, z0) || !mcb.env.Client.loaded(level, x1, z1) || !mcb.env.Client.loaded(level, x0, z1) || !mcb.env.Client.loaded(level, x1, z0)) return;
-        net.minecraft.core.BlockPos.MutableBlockPos p = new net.minecraft.core.BlockPos.MutableBlockPos();
+        if (!c.loaded(x0, z0) || !c.loaded(x1, z1) || !c.loaded(x0, z1) || !c.loaded(x1, z0)) return;
         for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
-            int id = net.minecraft.world.level.block.Block.getId(level.getBlockState(p.set(x, y, z)));
+            int id = c.blockAt(x, y, z);
             int have = g.cur[g.idx(x, y, z)];
             if (have != (StateInfo.air[id] ? 0 : id)) { reconciled++; onBlockChange(x, y, z, id); }
         }
@@ -294,9 +293,9 @@ public class Body {
     protected boolean holdSneak;
 
     // ------------------------------------------------------------------ items
-    public int count(Item item) {
+    public int count(int item) {
         int n = 0;
-        for (int i = 0; i < 36; i++) { ItemStack s = c.inventorySlot(i); if (!s.isEmpty() && s.getItem() == item) n += s.getCount(); }
+        for (int i = 0; i < 36; i++) { Stack s = c.inventorySlot(i); if (!s.isEmpty() && s.getItem() == item) n += s.getCount(); }
         return n;
     }
 
@@ -310,26 +309,26 @@ public class Body {
     private final long[] hotbarStamp = new long[9];
 
     /** Makes the main hand hold the item (number key, or a swap in the inventory screen). False if the bot has none. */
-    public boolean hold(Item item) { return hold(item, true); }
+    public boolean hold(int item) { return hold(item, true); }
 
     /**
      * @param mayOpenInventory false while sneaking at an edge: opening the inventory screen lets go of every key,
      *                         sneak included, and the player would drop off
      */
-    public boolean hold(Item item, boolean mayOpenInventory) {
-        ItemStack cur = c.inventorySlot(c.selectedSlot());
+    public boolean hold(int item, boolean mayOpenInventory) {
+        Stack cur = c.inventorySlot(c.selectedSlot());
         if (!cur.isEmpty() && cur.getItem() == item) {
             hotbarStamp[c.selectedSlot()] = ++hotbarUse;
             c.selectSlot(c.selectedSlot());   // cancels a slot change asked for earlier that has not taken effect yet
             return true;
         }
         for (int i = 0; i < 9; i++) {
-            ItemStack s = c.inventorySlot(i);
+            Stack s = c.inventorySlot(i);
             if (!s.isEmpty() && s.getItem() == item) { c.selectSlot(i); hotbarStamp[i] = ++hotbarUse; tickSelect(); return true; }
         }
         if (!mayOpenInventory) return false;
         for (int i = 9; i < 36; i++) {
-            ItemStack s = c.inventorySlot(i);
+            Stack s = c.inventorySlot(i);
             if (!s.isEmpty() && s.getItem() == item) {
                 // least recently used hotbar slot (prefer an empty one)
                 int best = 0;
@@ -341,11 +340,11 @@ public class Body {
                 c.releaseKeys();
                 inventoryOpenByMe = true;
                 c.openInventory(); tick();
-                c.clickSlot(i, best, ContainerInput.SWAP); tick();   // inventory screen: main slots keep their index 9..35
+                c.clickSlot(i, best, SlotClick.SWAP); tick();   // inventory screen: main slots keep their index 9..35
                 c.closeScreen(); tick();
                 inventoryOpenByMe = false;
                 c.selectSlot(best); hotbarStamp[best] = ++hotbarUse; tickSelect();
-                ItemStack now = c.inventorySlot(best);   // (the slot change itself takes effect with the next tick)
+                Stack now = c.inventorySlot(best);   // (the slot change itself takes effect with the next tick)
                 return !now.isEmpty() && now.getItem() == item;
             }
         }
@@ -355,7 +354,8 @@ public class Body {
     /** The slot change takes effect at the start of the next client tick, before that tick's clicks; nothing to wait for. */
     private void tickSelect() { }
 
-    public Item heldItem() { ItemStack s = c.inventorySlot(c.selectedSlot()); return s.isEmpty() ? null : s.getItem(); }
+    /** The item in the main hand, or ItemInfo.NONE. */
+    public int heldItem() { Stack s = c.inventorySlot(c.selectedSlot()); return s.isEmpty() ? ItemInfo.NONE : s.getItem(); }
 
     // ------------------------------------------------------------------ clicking
     /** Result of {@link #findClick}: the neighbour block face to click, the point to aim at and the view angles. */
@@ -419,7 +419,7 @@ public class Body {
                     float yaw = hd < 1e-6 ? 0f : yawTo(dx, dz);
                     float pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
                     if (table != null) {
-                        int st = table[mcb.env.Oracle.index(face, quad, mcb.env.Oracle.yawClass(yaw), mcb.env.Oracle.pitchClass(pitch), sneak)];
+                        int st = table[Oracle.index(face, quad, Oracle.yawClass(yaw), Oracle.pitchClass(pitch), sneak)];
                         if (debugClick) System.out.println("   click dbg: face " + face + " aim " + ax + "," + ay + "," + az + " yaw " + yaw + " pitch " + pitch + " table says " + StateInfo.name(st) + " want " + StateInfo.name(want));
                         if (st == 0 || StateInfo.loose[st] != wantCanon) continue;
                     }
@@ -530,7 +530,7 @@ public class Body {
             tick();
             if (g.get(x, y, z) == 0) { c.holdAttack(false); broken++; return true; }
             var hit = c.lastHit();
-            if (t > 2 && (hit == null || hit.getBlockPos().getX() != x || hit.getBlockPos().getY() != y || hit.getBlockPos().getZ() != z)) break;
+            if (t > 2 && (hit == null || hit.x != x || hit.y != y || hit.z != z)) break;
         }
         c.holdAttack(false);
         tick();

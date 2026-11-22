@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import mcb.build.Site;
-import mcb.build.StateInfo;
 import mcb.build.Target;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -39,13 +38,13 @@ public final class Depot {
         Target target = site.target;
         int ox = site.ox, oy = site.oy, oz = site.oz;
         List<Site.Stock> stock = site.stock;
-        Map<Item, Integer> need = site.requirements();
+        Map<Integer, Integer> need = site.requirements();
         List<ItemStack> stacks = new ArrayList<>();
-        addStacks(stacks, site.scaffoldItem, scaffoldCount);
+        addStacks(stacks, mcb.mc.BlockFacts.item(site.scaffoldItem), scaffoldCount);
         addStacks(stacks, net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
-        for (Map.Entry<Item, Integer> e : need.entrySet()) {
+        for (Map.Entry<Integer, Integer> e : need.entrySet()) {
             int n = e.getValue();
-            addStacks(stacks, e.getKey(), n + Math.max(4, n / 20));
+            addStacks(stacks, mcb.mc.BlockFacts.item(e.getKey()), n + Math.max(4, n / 20));
         }
         // (the last row of every chest stays empty: room to put things back)
         int perChest = 45;
@@ -67,7 +66,7 @@ public final class Depot {
                 for (int s = 0; s < perChest && si < stacks.size(); s++, si++) {
                     ItemStack st = stacks.get(si);
                     (s < 27 ? bw : be).setItem(s % 27, st.copy());
-                    stock.add(new Site.Stock(st.getItem(), st.getCount(), cx, cy, cz, s));
+                    stock.add(new Site.Stock(mcb.mc.BlockFacts.itemId(st.getItem()), st.getCount(), cx, cy, cz, s));
                 }
             }
         }
@@ -90,7 +89,7 @@ public final class Depot {
         int i = 0;
         for (int y = 0; y < target.sy; y++) for (int z = 0; z < target.sz; z++) for (int x = 0; x < target.sx; x++, i++) {
             int id = target.ids[i];
-            if (id != 0) env.level.setBlock(p.set(ox + x, oy + y, oz + z), StateInfo.state[id], flags);
+            if (id != 0) env.level.setBlock(p.set(ox + x, oy + y, oz + z), mcb.mc.BlockFacts.state(id), flags);
         }
     }
 }

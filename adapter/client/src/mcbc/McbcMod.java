@@ -48,14 +48,15 @@ public final class McbcMod implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        mcb.mc.BlockFacts.install();   // (the planner's block tables come from this game, filled at the first build)
         Path gameDir = FabricLoader.getInstance().getGameDir();
         Config.load(FabricLoader.getInstance().getConfigDir());
         try {
             Files.createDirectories(gameDir.resolve("logs"));
             eventLog = new PrintWriter(Files.newBufferedWriter(gameDir.resolve("logs/mcb-client.log"), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND), true);
         } catch (IOException e) { LOG.warn("[mcbc] event log", e); }
-        mcb.env.Client.sentRotation = p -> { var a = (mcbc.mixin.LocalPlayerAccessor) p; return new float[] {a.mcbc$yRotLast(), a.mcbc$xRotLast()}; };
-        mcb.env.Client.pendingPredictions = level -> ((mcbc.mixin.PredictionAccessor) ((mcbc.mixin.ClientLevelAccessor) level).mcbc$predictions()).mcbc$states().size();
+        LocalClient.sentRotation = p -> { var a = (mcbc.mixin.LocalPlayerAccessor) p; return new float[] {a.mcbc$yRotLast(), a.mcbc$xRotLast()}; };
+        LocalClient.pendingPredictions = level -> ((mcbc.mixin.PredictionAccessor) ((mcbc.mixin.ClientLevelAccessor) level).mcbc$predictions()).mcbc$states().size();
         pauseKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.mcb-client.pause", org.lwjgl.glfw.GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
         ClientCommandRegistrationCallback.EVENT.register((d, ctx) -> register(d));
         LOG.info("[mcbc] MCB Builder (client) loaded");
@@ -192,7 +193,7 @@ public final class McbcMod implements ClientModInitializer {
             say(c, "In the box: " + plan.alreadyRight + " cells already right; it would BREAK " + plan.toBreak.size() + " blocks (red)" + (plan.tooHard.isEmpty() ? "" : ", and leave " + plan.tooHard.size() + " too hard to break by hand (purple)") + (plan.fluids.isEmpty() ? "" : "; " + plan.fluids.size() + " fluid cells (it cannot remove those)") + (plan.containersInBox > 0 ? "; " + plan.containersInBox + " supply container blocks (left alone)" : "") + ". Nothing outside the box is broken; its temporary blocks outside the box are taken away again.");
             StringBuilder sb = new StringBuilder();
             int k = 0;
-            for (Map.Entry<Item, Integer> e : plan.need.entrySet()) {
+            for (Map.Entry<Integer, Integer> e : plan.need.entrySet()) {
                 int have = plan.carried.getOrDefault(e.getKey(), 0);
                 if (k++ < 12) sb.append(e.getValue()).append(' ').append(Job.itemName(e.getKey())).append(" (carried ").append(have).append("), ");
             }
@@ -235,7 +236,7 @@ public final class McbcMod implements ClientModInitializer {
     private static int judge(CommandContext<FabricClientCommandSource> c) {
         Job j = Driver.job != null ? Driver.job : Driver.last;
         if (j == null || j.site == null) return fail(c, "no build to judge yet");
-        Judge.Result r = Judge.judge(j.target, j.site.snapshot(c.getSource().getLevel()), c.getSource().getLevel());
+        Judge.Result r = Judge.judge(j.target, j.site.snapshot(mcb.mc.Convert.view(c.getSource().getLevel())), new mcb.mc.GameSurvival(c.getSource().getLevel()));
         say(c, j.name + ": " + (r.pass ? "PASS" : "FAIL") + " - " + r.failedSections + " of " + r.sections + " sections fail; judged cells " + r.targetCells + ", missing " + r.missing + ", wrong " + r.wrong + ", left behind " + r.leftover + " (as this client sees the world)");
         if (!r.firstBad.isEmpty()) say(c, "  first: " + r.firstBad);
         return r.pass ? 1 : 0;

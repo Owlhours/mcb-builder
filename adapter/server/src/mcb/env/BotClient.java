@@ -34,7 +34,8 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * The bot's game client. This is the only way the bot may observe or affect the world, and it offers exactly what
+ * The bot's game client for a server-side bot player (the singleplayer mod and the headless runs): the planner's
+ * {@link mcb.game.Client} on a {@link BotPlayer}. This is the only way the bot may observe or affect the world, and it offers exactly what
  * a person at a keyboard and mouse has: turn the view, hold movement keys, left/right click, pick a hotbar slot,
  * click slots in an open inventory/chest screen. One call to {@link #tick()} is one client tick followed by one
  * server tick.
@@ -46,7 +47,7 @@ import net.minecraft.world.phys.Vec3;
  * check (reach, placement rules, break timing, container validity) applies. What the crosshair points at is found
  * with the same ray cast the client uses (Entity.pick over block outline shapes, block interaction range).
  */
-public final class Client {
+public final class BotClient implements mcb.game.Client {
     private final Env env;
     public final BotPlayer player;
     private final FakeConnection conn;
@@ -80,7 +81,7 @@ public final class Client {
     private int nChanges;
     public long teleports;
 
-    Client(Env env, BotPlayer player, FakeConnection conn) {
+    BotClient(Env env, BotPlayer player, FakeConnection conn) {
         this.env = env;
         this.player = player;
         this.conn = conn;
@@ -150,78 +151,83 @@ public final class Client {
     }
 
     // ------------------------------------------------------------------ observation
-    public double x() { return player.getX(); }
-    public double y() { return player.getY(); }
-    public double z() { return player.getZ(); }
-    public Vec3 velocity() { return player.getDeltaMovement(); }
-    public boolean onGround() { return player.onGround(); }
-    public boolean horizontalCollision() { return player.horizontalCollision; }
-    public float yaw() { return yaw; }
-    public float pitch() { return pitch; }
-    public Vec3 eye() { return player.getEyePosition(); }
-    public double reach() { return player.blockInteractionRange(); }
-    public boolean sneaking() { return player.isShiftKeyDown(); }
+    @Override public double x() { return player.getX(); }
+    @Override public double y() { return player.getY(); }
+    @Override public double z() { return player.getZ(); }
+    @Override public mcb.game.Vec3 velocity() { Vec3 v = player.getDeltaMovement(); return new mcb.game.Vec3(v.x, v.y, v.z); }
+    @Override public boolean onGround() { return player.onGround(); }
+    @Override public boolean horizontalCollision() { return player.horizontalCollision; }
+    @Override public float yaw() { return yaw; }
+    @Override public float pitch() { return pitch; }
+    @Override public mcb.game.Vec3 eye() { Vec3 e = player.getEyePosition(); return new mcb.game.Vec3(e.x, e.y, e.z); }
+    @Override public double reach() { return player.blockInteractionRange(); }
+    @Override public boolean sneaking() { return player.isShiftKeyDown(); }
+    @Override public float health() { return player.getHealth(); }
+    @Override public boolean dead() { return player.isDeadOrDying(); }
 
     /** What the client knows of the world (loaded chunks around the player). */
     public BlockState block(BlockPos pos) { return env.level.getBlockState(pos); }
+    @Override public int blockAt(int x, int y, int z) { return Block.getId(env.level.getBlockState(new BlockPos(x, y, z))); }
     public net.minecraft.world.level.Level level() { return env.level; }
+    @Override public boolean loaded(int x, int z) { return loaded(env.level, x, z); }
+    @Override public boolean neighborSignal(int x, int y, int z) { return env.level.hasNeighborSignal(new BlockPos(x, y, z)); }
 
     /** Whether the chunk holding (x, z) is loaded in {@code level}. */
     public static boolean loaded(net.minecraft.world.level.Level level, int x, int z) { return level.hasChunk(x >> 4, z >> 4); }
     /** Chunks that arrived since the last call, as ChunkPos longs. The server-side bot is never sent chunks it has to
      *  read again (its site is pinned): always none. */
-    public long[] takeLoadedChunks() { return NO_CHUNKS; }
+    @Override public long[] takeLoadedChunks() { return NO_CHUNKS; }
     private static final long[] NO_CHUNKS = new long[0];
-    /** True while it is worth waiting another tick for the server to answer the w-th wait. In process the server
-     *  answers within the tick: never. */
-    public boolean waitingForServer(int w) { return false; }
-    /** What the bot is doing, for a status display (nothing shows it here). */
-    public void note(String what) { }
 
-    public int changeCount() { return nChanges; }
+    @Override public int changeCount() { return nChanges; }
     /** Returns the backing array of {x,y,z,stateId} quadruples; valid entries: changeCount(). Call clearChanges() after. */
-    public int[] changes() { return changes; }
-    public void clearChanges() { nChanges = 0; }
+    @Override public int[] changes() { return changes; }
+    @Override public void clearChanges() { nChanges = 0; }
 
-    public ItemStack inventorySlot(int i) { return player.getInventory().getItem(i); } // 0-8 hotbar, 9-35 main
-    public int selectedSlot() { return player.getInventory().getSelectedSlot(); }
-    public boolean screenOpen() { return inventoryScreen || openContainerId >= 0; }
-    public boolean containerOpen() { return openContainerId >= 0; }
+    @Override public mcb.game.Stack inventorySlot(int i) { return stack(player.getInventory().getItem(i)); } // 0-8 hotbar, 9-35 main
+    @Override public int selectedSlot() { return player.getInventory().getSelectedSlot(); }
+    @Override public boolean screenOpen() { return inventoryScreen || openContainerId >= 0; }
+    @Override public boolean containerOpen() { return openContainerId >= 0; }
     public AbstractContainerMenu menu() { return player.containerMenu; }
+    @Override public int menuSize() { return player.containerMenu.slots.size(); }
+    @Override public mcb.game.Stack menuSlot(int slot) { return stack(player.containerMenu.getSlot(slot).getItem()); }
+    @Override public String menuName() { return player.containerMenu.getClass().getSimpleName(); }
     /** The block face under the crosshair as of the last tick's pick (null if none within reach). */
-    public BlockHitResult lastHit() { return hit instanceof BlockHitResult b && b.getType() == HitResult.Type.BLOCK ? b : null; }
-    public boolean isBreaking() { return isDestroying; }
+    @Override public mcb.game.Hit lastHit() { return hit instanceof BlockHitResult b && b.getType() == HitResult.Type.BLOCK ? mcb.mc.Convert.hit(b) : null; }
+    @Override public boolean isBreaking() { return isDestroying; }
+
+    static mcb.game.Stack stack(ItemStack s) { return mcb.mc.Convert.stack(s); }
 
     // ------------------------------------------------------------------ inputs
-    public void look(float yaw, float pitch) {
+    @Override public void look(float yaw, float pitch) {
         this.yaw = yaw;
         this.pitch = Math.max(-90.0f, Math.min(90.0f, pitch));
     }
 
-    public void keys(boolean forward, boolean back, boolean left, boolean right, boolean jump, boolean sneak, boolean sprint) {
+    @Override public void keys(boolean forward, boolean back, boolean left, boolean right, boolean jump, boolean sneak, boolean sprint) {
         kForward = forward; kBack = back; kLeft = left; kRight = right; kJump = jump; kSneak = sneak; kSprint = sprint;
     }
 
-    public void releaseKeys() { keys(false, false, false, false, false, false, false); }
-    public void sneak(boolean s) { kSneak = s; }
-    public void jump(boolean j) { kJump = j; }
+    @Override public void releaseKeys() { keys(false, false, false, false, false, false, false); }
+    @Override public void sneak(boolean s) { kSneak = s; }
+    @Override public void jump(boolean j) { kJump = j; }
 
     /** Number key 1-9. */
-    public void selectSlot(int slot) { wantSlot = slot; }
+    @Override public void selectSlot(int slot) { wantSlot = slot; }
     /** One press of the use button (right click) during the next tick. */
-    public void clickUse() { useClick = true; }
+    @Override public void clickUse() { useClick = true; }
     /** One press of the attack button (left click) during the next tick. */
-    public void clickAttack() { attackClick = true; }
-    public void holdAttack(boolean held) { attackHeld = held; }
-    public void holdUse(boolean held) { useHeld = held; }
+    @Override public void clickAttack() { attackClick = true; }
+    @Override public void holdAttack(boolean held) { attackHeld = held; }
+    @Override public void holdUse(boolean held) { useHeld = held; }
 
     /** 'E': open the own-inventory screen. While any screen is open, movement keys and world clicks are ignored. */
-    public void openInventory() { wantOpenInventory = true; }
+    @Override public void openInventory() { wantOpenInventory = true; }
     /** Esc. */
-    public void closeScreen() { wantCloseScreen = true; }
+    @Override public void closeScreen() { wantCloseScreen = true; }
     /** A mouse click on a slot of the open screen (processed one per tick). */
-    public void clickSlot(int slot, int button, ContainerInput type) { screenClicks.add(new int[] {slot, button, type.ordinal()}); }
-    public int queuedSlotClicks() { return screenClicks.size(); }
+    @Override public void clickSlot(int slot, int button, mcb.game.SlotClick type) { screenClicks.add(new int[] {slot, button, ContainerInput.valueOf(type.name()).ordinal()}); }
+    @Override public int queuedSlotClicks() { return screenClicks.size(); }
 
     // ------------------------------------------------------------------ the tick
     /**
@@ -232,7 +238,7 @@ public final class Client {
     public long trace = 0xcbf29ce484222325L;
     private void traceIn(long v) { trace = (trace ^ v) * 0x100000001b3L; }
 
-    public void tick() {
+    @Override public void tick() {
         ticks++;
         traceIn(Float.floatToIntBits(yaw)); traceIn(Float.floatToIntBits(pitch));
         traceIn((kForward ? 1 : 0) | (kBack ? 2 : 0) | (kLeft ? 4 : 0) | (kRight ? 8 : 0) | (kJump ? 16 : 0) | (kSneak ? 32 : 0) | (kSprint ? 64 : 0)

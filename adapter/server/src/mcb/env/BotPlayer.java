@@ -23,7 +23,7 @@ import net.minecraft.world.phys.Vec3;
  * ability the client does not have.
  */
 public final class BotPlayer extends ServerPlayer {
-    /** Keys held during the tick being simulated (set by {@link Client} before each tick). */
+    /** Keys held during the tick being simulated (set by {@link BotClient} before each tick). */
     Input pendingKeys = Input.EMPTY;
     /** KeyboardInput state: keys as of the last input.tick(), and the normalised move vector. */
     private Input keyPresses = Input.EMPTY;

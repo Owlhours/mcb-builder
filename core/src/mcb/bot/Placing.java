@@ -1,5 +1,8 @@
 package mcb.bot;
 
+import mcb.build.ItemInfo;
+import mcb.game.Hit;
+import mcb.game.Vec3;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
@@ -10,17 +13,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * Putting a block into a cell from where the bot stands: choosing the click, checking it against the game's own
@@ -106,14 +100,14 @@ abstract class Placing extends Moves {
     }
 
     @Override protected boolean exactClick(int x, int y, int z, int want, int nx, int ny, int nz, int face, double ax, double ay, double az, float yaw, float pitch, boolean sneak) {
-        Item it = StateInfo.item[want];
-        if (it == Items.AIR) return true;
+        int it = StateInfo.item[want];
+        if (it == ItemInfo.AIR) return true;
         // (a block that is only imagined there - a column still to be put up - cannot be asked about: the table has to do)
         int believed = g.get(nx, ny, nz);
-        if (believed == 0 || c.block(new net.minecraft.core.BlockPos(nx, ny, nz)) != StateInfo.state[believed]) return true;
-        BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.from3DDataValue(face), new net.minecraft.core.BlockPos(nx, ny, nz), false);
+        if (believed == 0 || c.blockAt(nx, ny, nz) != believed) return true;
+        Hit hit = new Hit(ax, ay, az, face, nx, ny, nz, false);
         int pred = oracle.predict(it, hit, yaw, pitch, sneak);
-        return pred != 0 && StateInfo.loose[pred] == StateInfo.loose[want] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z;
+        return pred != 0 && StateInfo.loose[pred] == StateInfo.loose[want] && oracle.placedX == x && oracle.placedY == y && oracle.placedZ == z;
     }
 
     boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
@@ -147,15 +141,15 @@ abstract class Placing extends Moves {
             if (!findClick(x, y, z, sp.first, sp.table, e.x, e.y, e.z, sneak, 1 << d, click)) continue;
             if (!hold(sp.item, !leaning && !sneak)) return false;
             // what would really happen? (the bot's picture can be off for odd shapes; the rules decide)
-            BlockHitResult hit = oracle.pick(c, click.yaw, click.pitch);
-            if (hit == null || hit.getBlockPos().getX() != click.nx || hit.getBlockPos().getY() != click.ny || hit.getBlockPos().getZ() != click.nz
-                || hit.getDirection().get3DDataValue() != click.face) {
-                if (verbose && (tryLogs++ < 40 || watched(x, y, z))) log("tryPlace " + rel(x, y, z) + ": aimed at " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " but the crosshair is on " + (hit == null ? "nothing" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " face " + hit.getDirection()));
+            Hit hit = oracle.pick(c, click.yaw, click.pitch);
+            if (hit == null || hit.x != click.nx || hit.y != click.ny || hit.z != click.nz
+                || hit.face != click.face) {
+                if (verbose && (tryLogs++ < 40 || watched(x, y, z))) log("tryPlace " + rel(x, y, z) + ": aimed at " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " but the crosshair is on " + (hit == null ? "nothing" : rel(hit.x, hit.y, hit.z) + " face " + hit.faceName()));
                 continue;
             }
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
-            if (pred == 0 || (StateInfo.loose[pred] != StateInfo.loose[sp.first] && !shootFor(pred, sp.first)) || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) {
-                if (verbose && (tryLogs++ < 40 || watched(x, y, z))) log("tryPlace " + rel(x, y, z) + ": click on " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " would give " + StateInfo.name(pred) + " at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + ", wanted " + StateInfo.name(sp.first) + " yaw=" + click.yaw + " pitch=" + click.pitch + " sneak=" + sneak);
+            if (pred == 0 || (StateInfo.loose[pred] != StateInfo.loose[sp.first] && !shootFor(pred, sp.first)) || oracle.placedX != x || oracle.placedY != y || oracle.placedZ != z) {
+                if (verbose && (tryLogs++ < 40 || watched(x, y, z))) log("tryPlace " + rel(x, y, z) + ": click on " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " would give " + StateInfo.name(pred) + " at " + rel(oracle.placedX, oracle.placedY, oracle.placedZ) + ", wanted " + StateInfo.name(sp.first) + " yaw=" + click.yaw + " pitch=" + click.pitch + " sneak=" + sneak);
                 continue;
             }
             if (sp.chest && StateInfo.canon[pred] != StateInfo.canon[chestWant(x, y, z, t)]) continue;
@@ -175,7 +169,7 @@ abstract class Placing extends Moves {
                 return false;
             }
             if (sp.multi && !matches(now, t)) topUp(x, y, z, t, sp);
-            if (sp.content != null) fillPot(x, y, z, t, sp);
+            if (sp.content != ItemInfo.NONE) fillPot(x, y, z, t, sp);
             if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
             return true;   // (a block is there; if it is not finished yet, doCell comes back to it)
         }
@@ -200,7 +194,7 @@ abstract class Placing extends Moves {
             }
             c.clickUse();
             tick();
-            if (verbose) log("fillPot clicked; now=" + StateInfo.name(g.get(x, y, z)) + " hit=" + (c.lastHit() == null ? null : c.lastHit().getBlockPos()));
+            if (verbose) log("fillPot clicked; now=" + StateInfo.name(g.get(x, y, z)) + " hit=" + (c.lastHit() == null ? null : c.lastHit().pos()));
         }
         if (wasSneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
     }
@@ -224,8 +218,8 @@ abstract class Placing extends Moves {
                 double dist = Math.sqrt(dx * dx + dy * dy + dz * dz), hd = Math.sqrt(dx * dx + dz * dz);
                 if (dist > 4.45 || dist < 1e-6) continue;
                 float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                BlockHitResult hit = oracle.pick(c, yaw, pitch);
-                if (hit != null && hit.getBlockPos().getX() == x && hit.getBlockPos().getY() == y && hit.getBlockPos().getZ() == z) { c.look(yaw, pitch); return true; }
+                Hit hit = oracle.pick(c, yaw, pitch);
+                if (hit != null && hit.x == x && hit.y == y && hit.z == z) { c.look(yaw, pitch); return true; }
             }
         }
         return false;
@@ -233,7 +227,7 @@ abstract class Placing extends Moves {
 
     /** Right-clicks a placed block until its click-settable properties match (repeater delay, open trapdoor ...). */
     void adjust(int x, int y, int z, int t) {
-        if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return; // halves join by themselves
+        if (StateInfo.chest[t]) return; // halves join by themselves
         if (bodyIn(x, y, z) && !StateInfo.walkThrough[t]) return;   // (not while standing in it: a gate would close around the bot)
         boolean wasSneak = c.sneaking();
         if (wasSneak) { c.releaseKeys(); tick(); tick(); }
@@ -245,7 +239,7 @@ abstract class Placing extends Moves {
             c.clickUse();
             tick();
             if (g.get(x, y, z) == now) { tick(); if (g.get(x, y, z) == now) {
-                if (TRACE && verbose && failLogs++ < 300) log("adjust " + rel(x, y, z) + " " + StateInfo.name(now) + ": click did nothing; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + " " + c.lastHit().getDirection()) + " held=" + heldItem() + " sneaking=" + c.sneaking() + " screen=" + c.screenOpen());
+                if (TRACE && verbose && failLogs++ < 300) log("adjust " + rel(x, y, z) + " " + StateInfo.name(now) + ": click did nothing; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().x, c.lastHit().y, c.lastHit().z) + " " + c.lastHit().faceName()) + " held=" + heldItem() + " sneaking=" + c.sneaking() + " screen=" + c.screenOpen());
                 break; } }
         }
     }
@@ -280,17 +274,17 @@ abstract class Placing extends Moves {
                 if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.1) continue;
                 if (!ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) || ray.hx != x || ray.hy != y || ray.hz != z || ray.face != 1) continue;
                 float yaw = hd < 1e-6 ? 0f : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.UP, new net.minecraft.core.BlockPos(x, y, z), false);
+                Hit hit = new Hit(ax, ay, az, Hit.UP, x, y, z, false);
                 int pred = oracle.predict(sp.item, hit, yaw, pitch, false);
-                if (pred != 0 && pred != now && StateInfo.state[pred].getBlock() == StateInfo.state[t].getBlock() && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z) return true;
+                if (pred != 0 && pred != now && StateInfo.block[pred] == StateInfo.block[t] && oracle.placedX == x && oracle.placedY == y && oracle.placedZ == z) return true;
             }
         }
         // 2. on a neighbour's face that looks into the cell
         for (int d = 0; d < 6; d++) {
             if (!findClick(x, y, z, t, null, ex, ey, ez, false, 1 << d, click)) continue;
-            BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(click.ax, click.ay, click.az), net.minecraft.core.Direction.from3DDataValue(click.face), new net.minecraft.core.BlockPos(click.nx, click.ny, click.nz), false);
+            Hit hit = new Hit(click.ax, click.ay, click.az, click.face, click.nx, click.ny, click.nz, false);
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, false);
-            if (pred != 0 && pred != now && StateInfo.state[pred].getBlock() == StateInfo.state[t].getBlock() && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z) return true;
+            if (pred != 0 && pred != now && StateInfo.block[pred] == StateInfo.block[t] && oracle.placedX == x && oracle.placedY == y && oracle.placedZ == z) return true;
         }
         return false;
     }
@@ -316,12 +310,12 @@ abstract class Placing extends Moves {
     }
 
     boolean topUpTry(int x, int y, int z, int t, Spec sp, int now, float yaw, float pitch) {
-        BlockHitResult hit = oracle.pick(c, yaw, pitch);
+        Hit hit = oracle.pick(c, yaw, pitch);
         if (hit == null) return false;
-        if (StateInfo.interactive[g.get(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ())] && !c.sneaking()) return false;
+        if (StateInfo.interactive[g.get(hit.x, hit.y, hit.z)] && !c.sneaking()) return false;
         int pred = oracle.predict(sp.item, hit, yaw, pitch, c.sneaking());
-        if (pred == 0 || pred == now || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) return false;
-        if (StateInfo.state[pred].getBlock() != StateInfo.state[t].getBlock()) return false;
+        if (pred == 0 || pred == now || oracle.placedX != x || oracle.placedY != y || oracle.placedZ != z) return false;
+        if (StateInfo.block[pred] != StateInfo.block[t]) return false;
         c.look(yaw, pitch);
         c.clickUse();
         if (c.sneaking()) c.sneak(true);
@@ -378,8 +372,8 @@ abstract class Placing extends Moves {
         boolean ok = false;
         for (int n = 0; n < 14; n++) {
             if (!ok && c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) {
-                BlockHitResult hit = oracle.pick(c, yaw, 90);
-                if (hit != null && hit.getBlockPos().getX() == x && hit.getBlockPos().getY() == y - 1 && hit.getBlockPos().getZ() == z) {
+                Hit hit = oracle.pick(c, yaw, 90);
+                if (hit != null && hit.x == x && hit.y == y - 1 && hit.z == z) {
                     int pred = oracle.predict(sp.item, hit, yaw, 90, false);
                     if (pred != 0 && StateInfo.loose[pred] == StateInfo.loose[sp.first]) c.clickUse();
                 }
@@ -406,7 +400,7 @@ abstract class Placing extends Moves {
      * its cell - a door flat against a wall, a ladder, an open trapdoor - or anything one can walk through.
      */
     boolean insidePlaceable(int x, int y, int z, Spec sp) {
-        if (sp.multi || sp.chest || sp.content != null || StateInfo.fullCube[sp.first]) return false;
+        if (sp.multi || sp.chest || sp.content != ItemInfo.NONE || StateInfo.fullCube[sp.first]) return false;
         if (g.stand16(x, y, z) < 0) return false;
         if (StateInfo.walkThrough[sp.first]) return true;
         float[] b = Ray.outline(sp.first);
@@ -429,10 +423,10 @@ abstract class Placing extends Moves {
                 if (hd < 1e-6 || Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.05) continue;
                 if (!ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) || ray.hx != nx || ray.hy != ny || ray.hz != nz || ray.face != OPP[d]) continue;
                 float yaw = yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                Item it = sp.item;
-                BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.from3DDataValue(OPP[d]), new net.minecraft.core.BlockPos(nx, ny, nz), false);
+                int it = sp.item;
+                Hit hit = new Hit(ax, ay, az, OPP[d], nx, ny, nz, false);
                 int pred = oracle.predict(it, hit, yaw, pitch, false);
-                if (pred != 0 && StateInfo.loose[pred] == StateInfo.loose[sp.first] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z) return true;
+                if (pred != 0 && StateInfo.loose[pred] == StateInfo.loose[sp.first] && oracle.placedX == x && oracle.placedY == y && oracle.placedZ == z) return true;
             }
         }
         return false;
@@ -468,10 +462,10 @@ abstract class Placing extends Moves {
                 double dx = ax - e.x, dy = ay - e.y, dz = az - e.z, hd = Math.sqrt(dx * dx + dz * dz);
                 if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.05) continue;
                 float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                BlockHitResult hit = oracle.pick(c, yaw, pitch);
-                if (hit == null || hit.getBlockPos().getX() != nx || hit.getBlockPos().getY() != ny || hit.getBlockPos().getZ() != nz || hit.getDirection().get3DDataValue() != OPP[d]) continue;
+                Hit hit = oracle.pick(c, yaw, pitch);
+                if (hit == null || hit.x != nx || hit.y != ny || hit.z != nz || hit.face != OPP[d]) continue;
                 int pred = oracle.predict(sp.item, hit, yaw, pitch, false);
-                if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+                if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedX != x || oracle.placedY != y || oracle.placedZ != z) continue;
                 c.look(yaw, pitch);
                 c.clickUse();
                 tick();
@@ -563,16 +557,16 @@ abstract class Placing extends Moves {
                 double dx = ax - ex, dy = ay - ey, dz = az - ez, hd = Math.sqrt(dx * dx + dz * dz);
                 if (hd < 1e-6 || Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.05) continue;
                 float yaw = yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                BlockHitResult hit;
+                Hit hit;
                 if (act) {
                     hit = oracle.pick(c, yaw, pitch);
-                    if (hit == null || hit.getBlockPos().getX() != nx || hit.getBlockPos().getY() != ny || hit.getBlockPos().getZ() != nz || hit.getDirection().get3DDataValue() != OPP[d]) continue;
+                    if (hit == null || hit.x != nx || hit.y != ny || hit.z != nz || hit.face != OPP[d]) continue;
                 } else {
                     if (!ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) || ray.hx != nx || ray.hy != ny || ray.hz != nz || ray.face != OPP[d]) continue;
-                    hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.from3DDataValue(OPP[d]), new net.minecraft.core.BlockPos(nx, ny, nz), false);
+                    hit = new Hit(ax, ay, az, OPP[d], nx, ny, nz, false);
                 }
                 int pred = oracle.predict(sp.item, hit, yaw, pitch, sneak);
-                if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+                if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedX != x || oracle.placedY != y || oracle.placedZ != z) continue;
                 if (!act) return true;
                 c.look(yaw, pitch);
                 c.clickUse();
@@ -586,7 +580,7 @@ abstract class Placing extends Moves {
 
     /** See planClose: goes to the spot found there and places the block. */
     boolean placeClose(int x, int y, int z, int t, Spec sp) {
-        if (sp.multi || sp.chest || sp.content != null) return false;
+        if (sp.multi || sp.chest || sp.content != ItemInfo.NONE) return false;
         int i = g.idx(x, y, z), sur = surroundings(i);
         if (closeFailed.containsKey(i) && closeFailed.get(i) == sur) return false;
         reach = 4.5;

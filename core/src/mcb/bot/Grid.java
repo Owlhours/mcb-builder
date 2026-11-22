@@ -73,7 +73,7 @@ public final class Grid {
     private static byte[] standCol, standAny;
     private static void standTops() {
         byte[] c = StateInfo.colTop.clone(), a = StateInfo.anyTop.clone();
-        if (HOPPER_FLOOR) for (int i = 0; i < c.length; i++) if (StateInfo.state[i] != null && StateInfo.state[i].getBlock() instanceof net.minecraft.world.level.block.HopperBlock) { c[i] = 16; a[i] = 16; }
+        if (HOPPER_FLOOR) for (int i = 0; i < c.length; i++) if (StateInfo.hopper[i]) { c[i] = 16; a[i] = 16; }
         standAny = a; standCol = c;
     }
     /** The top of a state's collision shape over its whole column / its highest point, in sixteenths, as the bot's
@@ -91,9 +91,8 @@ public final class Grid {
         boolean[] h = new boolean[StateInfo.N]; byte[] d = new byte[StateInfo.N];
         for (int s = 0; s < StateInfo.N; s++) {
             if (!StateInfo.scaffolding[s]) continue;
-            var st = StateInfo.state[s];
-            d[s] = (byte) (int) st.getValue(net.minecraft.world.level.block.ScaffoldingBlock.DISTANCE);
-            h[s] = d[s] != 0 && st.getValue(net.minecraft.world.level.block.ScaffoldingBlock.BOTTOM);
+            d[s] = StateInfo.scaffoldDistance[s];
+            h[s] = d[s] != 0 && StateInfo.scaffoldBottom[s];
         }
         scafDist = d; hangPiece = h;
     }

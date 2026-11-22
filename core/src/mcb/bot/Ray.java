@@ -1,9 +1,6 @@
 package mcb.bot;
 
 import mcb.build.StateInfo;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.EmptyBlockGetter;
-import net.minecraft.world.phys.AABB;
 
 /**
  * Line of sight on the bot's picture of the world: which block face a ray from the eye meets first. Mirrors the
@@ -21,15 +18,9 @@ public final class Ray {
         boxes = new float[n][];
         full = new boolean[n];
         for (int i = 0; i < n; i++) {
-            var shape = StateInfo.state[i].getShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
-            var list = shape.toAabbs();
-            float[] b = new float[list.size() * 6];
-            int k = 0;
-            for (AABB a : list) {
-                b[k++] = (float) a.minX; b[k++] = (float) a.minY; b[k++] = (float) a.minZ; b[k++] = (float) a.maxX; b[k++] = (float) a.maxY; b[k++] = (float) a.maxZ;
-            }
+            float[] b = StateInfo.outline[i];
             boxes[i] = b;
-            full[i] = list.size() == 1 && b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1 && b[4] == 1 && b[5] == 1;
+            full[i] = b.length == 6 && b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1 && b[4] == 1 && b[5] == 1;
         }
     }
 

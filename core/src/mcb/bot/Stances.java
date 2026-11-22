@@ -10,23 +10,14 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /** Choosing where to stand for a cell: somewhere that exists, an edge to lean over, or a temporary column. */
 abstract class Stances extends Placing {
     Stances(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
-    final int towerState = Block.getId(net.minecraft.world.level.block.Blocks.SCAFFOLDING.defaultBlockState());
+    final int towerState = StateInfo.defaultState("scaffolding");
     static final int[] DYS = {0, 1, -1, -2, 2, -3, -4};
     static final double PLAN_REACH = 4.15;
     final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];

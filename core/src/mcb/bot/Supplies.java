@@ -1,5 +1,8 @@
 package mcb.bot;
 
+import mcb.build.ItemInfo;
+import mcb.game.Stack;
+import mcb.game.SlotClick;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
@@ -10,17 +13,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /** Trips to the supply chests: what to carry for the work ahead, what to put back, in which order to fetch. */
 abstract class Supplies extends Scaffolds {
@@ -33,7 +27,7 @@ abstract class Supplies extends Scaffolds {
     static final boolean OFF_STOCK_A = System.getenv("MCB_OFFSTOCK") != null || System.getenv("MCB_OFFSTOCK_A") != null;
     static final boolean OFF_STOCK_B = System.getenv("MCB_OFFSTOCK") != null || System.getenv("MCB_OFFSTOCK_B") != null;
 
-    int missingNow(Map<Item, Integer> need, Item it) {
+    int missingNow(Map<Integer, Integer> need, int it) {
         Integer n = need.get(it);
         return n == null ? 0 : n - count(it);
     }
@@ -68,10 +62,10 @@ abstract class Supplies extends Scaffolds {
         if (!rope.isEmpty()) undoRope();
         // (WALK_WAY: Rust takes its walkway down here when wing_recs is not empty - only with `walkdown`, left out)
         trips++;
-        Map<Item, Integer> need = new LinkedHashMap<>();
+        Map<Integer, Integer> need = new LinkedHashMap<>();
         int slotsUsed = 0;
         // first what the cell in hand needs, and what the cells put off until later need
-        if (mustFetch != null) { need.put(mustFetch, new ItemStack(mustFetch).getMaxStackSize()); slotsUsed++; }
+        if (mustFetch != ItemInfo.NONE) { need.put(mustFetch, ItemInfo.maxStack(mustFetch)); slotsUsed++; }
         // scaffolding is used up (broken blocks drop nothing): carry more of it the more the build turns out to need
         int wantLoose = Math.min(64 * 4, 64 + 64 * scaffoldTrips), wantTower = Math.min(64 * 6, 128 + 64 * towerTrips);
         need.merge(scaffoldItem, wantLoose, Integer::sum);
@@ -84,8 +78,8 @@ abstract class Supplies extends Scaffolds {
             if (!mainDone || !needs(cell) || slotsUsed >= 16) continue;
             if (!lateToo && isLate(cell)) continue;
             int t = g.tgt[cell];
-            Item it = StateInfo.item[t];
-            if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
+            int it = StateInfo.item[t];
+            if (it == ItemInfo.AIR || StateInfo.itemCount[t] == 0) continue;
             int now = need.getOrDefault(it, 0);
             if (now == 0) slotsUsed++;
             need.put(it, now + StateInfo.itemCount[t]);
@@ -118,9 +112,9 @@ abstract class Supplies extends Scaffolds {
                             if (!needs(i) || deferred.contains(i)) continue;
                             if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;   // cannot go in as things stand
                             int t = g.tgt[i];
-                            Item it = StateInfo.item[t];
-                            if (it == Items.AIR || StateInfo.itemCount[t] == 0 || isLate(i) || !spec(t).placeable) continue;
-                            int max = new ItemStack(it).getMaxStackSize();
+                            int it = StateInfo.item[t];
+                            if (it == ItemInfo.AIR || StateInfo.itemCount[t] == 0 || isLate(i) || !spec(t).placeable) continue;
+                            int max = ItemInfo.maxStack(it);
                             int now = need.getOrDefault(it, 0);
                             int add = StateInfo.itemCount[t];
                             if (now == 0 || (now + add - 1) / max != (now - 1) / max) {
@@ -128,8 +122,8 @@ abstract class Supplies extends Scaffolds {
                                 slotsUsed++;
                             }
                             need.put(it, now + add);
-                            Item extra = StateInfo.contentItem(t);
-                            if (extra != null) { if (!need.containsKey(extra)) slotsUsed++; need.merge(extra, 1, Integer::sum); }
+                            int extra = StateInfo.contentItem[t];
+                            if (extra != ItemInfo.NONE) { if (!need.containsKey(extra)) slotsUsed++; need.merge(extra, 1, Integer::sum); }
                             if (--budget < 0) break outer;
                         }
                     }
@@ -141,13 +135,13 @@ abstract class Supplies extends Scaffolds {
         // load again. The load is planned by slots instead: what the bot is sent for and the kinds it holds first, one slot
         // each, then the slots left in proportion to what each kind's cells still take; nothing beyond its share is missing.
         if (mainDone && OFF_STOCK_A) {
-            List<Item> kinds = new ArrayList<>();
+            List<Integer> kinds = new ArrayList<>();
             List<Integer> slotsOf = new ArrayList<>();
             int total = 0;
             for (var e : need.entrySet()) {
-                Item it = e.getKey();
+                int it = e.getKey();
                 if (it == scaffoldItem || it == towerItem || e.getValue() <= 0) continue;
-                int st = new ItemStack(it).getMaxStackSize();
+                int st = ItemInfo.maxStack(it);
                 int sl = (e.getValue() + st - 1) / st;
                 kinds.add(it); slotsOf.add(sl); total += sl;
             }
@@ -170,14 +164,14 @@ abstract class Supplies extends Scaffolds {
                     for (int k : order) { if (left == 0) break; if (alloc[k] > 0 && alloc[k] < slotsOf.get(k)) { alloc[k]++; left--; } }
                 }
                 for (int k = 0; k < nk; k++) {
-                    Item it = kinds.get(k);
-                    int cap = alloc[k] * new ItemStack(it).getMaxStackSize();
+                    int it = kinds.get(k);
+                    int cap = alloc[k] * ItemInfo.maxStack(it);
                     need.put(it, Math.min(need.get(it), cap));
                 }
             }
         }
         List<Site.Stock> todo = new ArrayList<>();
-        Map<Item, Integer> missing = new LinkedHashMap<>();
+        Map<Integer, Integer> missing = new LinkedHashMap<>();
         for (var e : need.entrySet()) { int m = e.getValue() - count(e.getKey()); if (m > 0) missing.put(e.getKey(), m); }
         if (missing.isEmpty()) return;
         for (Site.Stock s : stock) {
@@ -190,7 +184,7 @@ abstract class Supplies extends Scaffolds {
         if (todo.isEmpty()) return;
         log("restock: " + todo.size() + " stacks");
         // most urgent first (the order in which the needs were collected)
-        List<Item> order = new ArrayList<>(need.keySet());
+        List<Integer> order = new ArrayList<>(need.keySet());
         todo.sort(java.util.Comparator.comparingInt(st -> order.indexOf(st.item)));
         boolean tidied = false;
         int k = 0;
@@ -234,32 +228,32 @@ abstract class Supplies extends Scaffolds {
             // (registered containers) the screen opens when the server says so: wait for it a while (latency, Timer)
             for (int w = 0; w < 40 && !c.containerOpen() && c.waitingForServer(w); w++) tick();
             if (!c.containerOpen()) { tick(); if (!c.containerOpen()) {
-                if (verbose && chestLogs++ < 20) log("chest at " + rel(first.chestX, first.chestY, first.chestZ) + " did not open; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + " " + StateInfo.name(g.get(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()))) + " above=" + StateInfo.name(g.get(first.chestX, first.chestY + 1, first.chestZ)) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " screen=" + c.screenOpen() + " sneaking=" + c.sneaking());
+                if (verbose && chestLogs++ < 20) log("chest at " + rel(first.chestX, first.chestY, first.chestZ) + " did not open; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().x, c.lastHit().y, c.lastHit().z) + " " + StateInfo.name(g.get(c.lastHit().x, c.lastHit().y, c.lastHit().z))) + " above=" + StateInfo.name(g.get(first.chestX, first.chestY + 1, first.chestZ)) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " screen=" + c.screenOpen() + " sneaking=" + c.sneaking());
                 k++; continue; } }
             // make room: put back what this load does not call for, and whole stacks beyond what it calls for
             boolean deposited = false;
             for (int inv = 0; inv < 36 && !tidied; inv++) {
-                ItemStack st = c.inventorySlot(inv);
+                Stack st = c.inventorySlot(inv);
                 if (st.isEmpty()) continue;
                 Integer want = need.get(st.getItem());
                 if (want != null && count(st.getItem()) - st.getCount() < want) continue;
                 int menuSlot = invSlot(inv);
-                if (menuSlot >= c.menu().slots.size()) break;
+                if (menuSlot >= c.menuSize()) break;
                 int before = st.getCount();
-                c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE);
+                c.clickSlot(menuSlot, 0, SlotClick.QUICK_MOVE);
                 tick();
                 if (c.inventorySlot(inv).isEmpty() || c.inventorySlot(inv).getCount() != before) deposited = true;
             }
             // still crowded (the chest took nothing more)? then the tidying goes on at the next chest
             int unneeded = 0;
-            for (int inv = 0; inv < 36; inv++) { ItemStack st = c.inventorySlot(inv); if (!st.isEmpty() && !need.containsKey(st.getItem())) unneeded++; }
+            for (int inv = 0; inv < 36; inv++) { Stack st = c.inventorySlot(inv); if (!st.isEmpty() && !need.containsKey(st.getItem())) unneeded++; }
             tidied = unneeded == 0 || freeSlots() >= 6;
             // everything on the list that this chest holds
             for (int j = k; j < todo.size(); j++) {
                 Site.Stock s = todo.get(j);
                 if (s.count <= 0 || s.chestX != first.chestX || s.chestY != first.chestY || s.chestZ != first.chestZ) continue;
                 if (j != k && missingNow(need, s.item) <= 0) continue;
-                ItemStack inSlot = c.menu().getSlot(s.slot).getItem();
+                Stack inSlot = c.menuSlot(s.slot);
                 if (inSlot.isEmpty() || inSlot.getItem() != s.item) {
                     // not what the list says is here: believe the chest
                     log("chest slot " + s.slot + " at " + rel(s.chestX, s.chestY, s.chestZ) + " holds " + inSlot + ", expected " + s.item + " x" + s.count);
@@ -271,7 +265,7 @@ abstract class Supplies extends Scaffolds {
                     // no room for something urgent: the least urgent stack carried goes back into this chest
                     int victim = -1, worst = order.indexOf(s.item);
                     for (int inv = 0; inv < 36; inv++) {
-                        ItemStack st = c.inventorySlot(inv);
+                        Stack st = c.inventorySlot(inv);
                         if (st.isEmpty() || st.getItem() == scaffoldItem || st.getItem() == towerItem) continue;
                         int pr = order.indexOf(st.getItem());
                         if (pr < 0) pr = Integer.MAX_VALUE;
@@ -279,22 +273,22 @@ abstract class Supplies extends Scaffolds {
                     }
                     if (victim >= 0) {
                         int menuSlot = invSlot(victim);
-                        if (menuSlot < c.menu().slots.size()) { c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE); tick(); deposited = true; }
+                        if (menuSlot < c.menuSize()) { c.clickSlot(menuSlot, 0, SlotClick.QUICK_MOVE); tick(); deposited = true; }
                     }
                 }
-                c.clickSlot(s.slot, 0, ContainerInput.QUICK_MOVE);
+                c.clickSlot(s.slot, 0, SlotClick.QUICK_MOVE);
                 tick();
-                s.count = c.menu().getSlot(s.slot).getItem().getCount();
+                s.count = c.menuSlot(s.slot).getCount();
                 if (count(s.item) == before) { if (verbose) log("taking " + s.item + " from slot " + s.slot + " did not arrive; free=" + freeSlots()); if (j == k) s.count = -s.count - 1; }
             }
             // (a stack that would not come - no room - is left for the next trip)
             if (first.count < 0) { first.count = -first.count - 1; k++; }
-            if (deposited && c.menu().slots.size() > 36) {
-                int nSlots = c.menu().slots.size() - 36;
+            if (deposited && c.menuSize() > 36) {
+                int nSlots = c.menuSize() - 36;
                 // the chest's contents changed in ways the list does not know: read them off the open screen
                 for (Site.Stock s : stock) if (s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ) s.count = 0;
                 for (int slot = 0; slot < nSlots; slot++) {
-                    ItemStack st = c.menu().getSlot(slot).getItem();
+                    Stack st = c.menuSlot(slot);
                     if (st.isEmpty()) continue;
                     Site.Stock found = null;
                     for (Site.Stock s : stock) if (s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ && s.slot == slot) { found = s; break; }
@@ -310,7 +304,7 @@ abstract class Supplies extends Scaffolds {
     /** The open container screen's slot number of player inventory slot inv (0-8 hotbar, 9-35 main),
      *  for a container of any size (a chest, a double chest, a barrel, a shulker box). */
     int invSlot(int inv) {
-        int n = c.menu().slots.size() - 36;
+        int n = c.menuSize() - 36;
         return inv < 9 ? n + 27 + inv : n + (inv - 9);
     }
 
@@ -323,7 +317,7 @@ abstract class Supplies extends Scaffolds {
     private void surveyImpl() {
         java.util.List<Site.Stock> keys = new java.util.ArrayList<>();
         java.util.Set<Long> seen = new java.util.HashSet<>();
-        for (Site.Stock s : stock) if (seen.add(net.minecraft.core.BlockPos.asLong(s.chestX, s.chestY, s.chestZ))) keys.add(s);
+        for (Site.Stock s : stock) if (seen.add(mcb.game.Pos.pack(s.chestX, s.chestY, s.chestZ))) keys.add(s);
         for (Site.Stock first : keys) {
             boolean ok = (cx() == standX(first) && cy() == standY(first) && cz() == standZ(first)) || (search(standX(first), standY(first), standZ(first), 200000) && travel());
             if (!ok) { surveyFailures.add(first.chestX + " " + first.chestY + " " + first.chestZ + ": no way there"); continue; }
@@ -334,18 +328,18 @@ abstract class Supplies extends Scaffolds {
             for (int w = 0; w < 40 && !c.containerOpen() && c.waitingForServer(w); w++) tick();
             if (!c.containerOpen()) { surveyFailures.add(first.chestX + " " + first.chestY + " " + first.chestZ + ": did not open"); continue; }
             for (int w = 0; w < 5; w++) tick();   // (the contents come just after the screen)
-            int nSlots = c.menu().slots.size() - 36;
+            int nSlots = c.menuSize() - 36;
             stock.removeIf(s -> s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ);
             boolean any = false;
             for (int slot = 0; slot < nSlots; slot++) {
-                ItemStack st = c.menu().getSlot(slot).getItem();
+                Stack st = c.menuSlot(slot);
                 if (st.isEmpty()) continue;
                 Site.Stock ns = new Site.Stock(st.getItem(), st.getCount(), first.chestX, first.chestY, first.chestZ, slot);
                 ns.setAccess(first);
                 stock.add(ns);
                 any = true;
             }
-            if (!any) { Site.Stock ns = new Site.Stock(net.minecraft.world.item.Items.AIR, 0, first.chestX, first.chestY, first.chestZ, 0); ns.setAccess(first); stock.add(ns); }
+            if (!any) { Site.Stock ns = new Site.Stock(ItemInfo.AIR, 0, first.chestX, first.chestY, first.chestZ, 0); ns.setAccess(first); stock.add(ns); }
             c.closeScreen();
             tick();
         }

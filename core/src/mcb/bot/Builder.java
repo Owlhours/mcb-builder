@@ -1,5 +1,7 @@
 package mcb.bot;
 
+import mcb.build.ItemInfo;
+import mcb.game.Stack;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
@@ -10,17 +12,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * The builder. It works through the target layer by layer from the ground up. For every cell it finds a place to
@@ -38,7 +31,7 @@ public final class Builder extends Supplies {
 
     /** (The client mod) Called when an item the build needs is gone from inventory and containers alike: true when the
      *  owner has been asked and says there is more now (the call returns after the owner resumes). */
-    public java.util.function.Predicate<net.minecraft.world.item.Item> shortage;
+    public java.util.function.IntPredicate shortage;
 
     /**
      * (The client mod) Clears the build box of what is in the way before building: every block in a cell where the target
@@ -477,9 +470,7 @@ public final class Builder extends Supplies {
                 int i = g.idx(x, y, z), a = g.tgt[i];
                 if (a != 0 && !StateInfo.decorative(a) && !StateInfo.gameMaster(a)) tgt++;
                 if (a != 0) {
-                    net.minecraft.world.level.block.Block bl = StateInfo.state[a].getBlock();
-                    if (bl instanceof net.minecraft.world.level.block.piston.PistonBaseBlock || bl instanceof net.minecraft.world.level.block.piston.PistonHeadBlock
-                            || bl instanceof net.minecraft.world.level.block.ObserverBlock || bl == net.minecraft.world.level.block.Blocks.SLIME_BLOCK || bl == net.minecraft.world.level.block.Blocks.HONEY_BLOCK) machine = 1;
+                    if (StateInfo.machine[a]) machine = 1;
                 }
                 int k = badKind(i);
                 if (k != 0) { bad++; if (k != 3) mw++; }
@@ -619,7 +610,7 @@ public final class Builder extends Supplies {
             boolean ok = false;
             for (int[] shaft : shaftsFor(i, 4)) {
                 // only what can be put back (one of the item for each block taken out, and one for the cell)
-                java.util.HashMap<net.minecraft.world.item.Item, Integer> need = new java.util.HashMap<>();
+                java.util.HashMap<Integer, Integer> need = new java.util.HashMap<>();
                 for (int v : shaft) if (g.cur[v] != 0 && g.tgt[v] != 0) need.merge(StateInfo.item[g.tgt[v]], 1, Integer::sum);
                 if (g.cur[i] == 0) need.merge(StateInfo.item[g.tgt[i]], 1, Integer::sum);
                 boolean enough = true;
@@ -760,11 +751,11 @@ public final class Builder extends Supplies {
             // cell of a kind it does not hold (which means a trip) is taken only when no cell is left that the load in hand serves
             boolean offs = Supplies.OFF_STOCK_B && mainDone;
             int[] kind = null;
-            java.util.List<Item> kinds = new java.util.ArrayList<>();
+            java.util.List<Integer> kinds = new java.util.ArrayList<>();
             if (offs) {
                 kind = new int[cells.length];
                 for (int j = 0; j < cells.length; j++) {
-                    Item it = StateInfo.item[g.tgt[cells[j]]];
+                    int it = StateInfo.item[g.tgt[cells[j]]];
                     int p = kinds.indexOf(it);
                     if (p < 0) { kinds.add(it); p = kinds.size() - 1; }
                     kind[j] = p;
@@ -774,7 +765,7 @@ public final class Builder extends Supplies {
                 int bx = cx(), by = cy(), bz = cz(), k = -1, kh = -1;
                 long best = Long.MAX_VALUE, bestH = Long.MAX_VALUE;
                 boolean[] held = null;
-                if (offs) { held = new boolean[kinds.size()]; for (int q = 0; q < held.length; q++) held[q] = kinds.get(q) == Items.AIR || count(kinds.get(q)) > 0; }
+                if (offs) { held = new boolean[kinds.size()]; for (int q = 0; q < held.length; q++) held[q] = kinds.get(q) == ItemInfo.AIR || count(kinds.get(q)) > 0; }
                 for (int j = 0; j < cells.length; j++) {
                     if (done[j]) continue;
                     long d = Math.abs(g.xOf(cells[j]) - bx) + Math.abs(g.zOf(cells[j]) - bz) + 2L * Math.abs(g.yOf(cells[j]) - by);
@@ -853,7 +844,7 @@ public final class Builder extends Supplies {
         double bestCost = Double.MAX_VALUE;
         int maxR = Math.max(tilesX, tilesZ);
         carried.clear();
-        for (int k = 0; k < 36; k++) { ItemStack st = c.inventorySlot(k); if (!st.isEmpty()) carried.add(st.getItem()); }
+        for (int k = 0; k < 36; k++) { Stack st = c.inventorySlot(k); if (!st.isEmpty()) carried.add(st.getItem()); }
         for (int r = 0; r <= maxR; r++) {
             // every column in tile ring r is at least (r - 1) * 8 + 1 away
             if (best >= 0 && (r - 1) * 8 + 1 > bestCost) break;
@@ -974,9 +965,9 @@ public final class Builder extends Supplies {
      * (the world is peaceful: health comes back by itself).
      */
     @Override void guardHealth() {
-        if (c.player.getHealth() >= 10 || c.player.isDeadOrDying()) return;
+        if (c.health() >= 10 || c.dead()) return;
         retreats++;
-        if (verbose && retreats <= 5) log("hurt (health " + c.player.getHealth() + "): stepping aside to recover");
+        if (verbose && retreats <= 5) log("hurt (health " + c.health() + "): stepping aside to recover");
         if (!rope.isEmpty()) undoRope();
         int bx = cx(), by = cy(), bz = cz();
         if (!safeSpot(bx, by, bz)) {
@@ -994,7 +985,7 @@ public final class Builder extends Supplies {
         // it waits (a sneaking player takes no harm from magma) instead of standing on it until the wait kills it
         boolean crouch = MAGMA_SNEAK && !holdSneak && (StateInfo.hot[g.get(cx(), cy() - 1, cz())] || StateInfo.hot[g.get(cx(), cy(), cz())]);
         if (crouch) c.keys(false, false, false, false, false, true, false);
-        for (int n = 0; n < 500 && c.player.getHealth() < 18 && !c.player.isDeadOrDying(); n++) tick();
+        for (int n = 0; n < 500 && c.health() < 18 && !c.dead(); n++) tick();
         if (crouch) c.releaseKeys();
     }
 
@@ -1046,12 +1037,12 @@ public final class Builder extends Supplies {
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
         int t = g.tgt[i];
         Spec sp = spec(t);
-        if (!sp.placeable) { skip(i, "cannot be placed by hand: " + StateInfo.state[t].getBlock().getDescriptionId().replace("block.minecraft.", "")); return SKIP; }
+        if (!sp.placeable) { skip(i, "cannot be placed by hand: " + StateInfo.descriptionId[t].replace("block.minecraft.", "")); return SKIP; }
         int w = g.cur[i];
         if (w != 0) {
             if (scaffold.contains(i)) { long kept = keptForExit; if (!removeScaffold(i)) { if (keptForExit > kept) { deferWhy = "own way out stands in the cell"; return DEFER; } skip(i, "scaffold in the way"); return SKIP; } }
-            else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) { deferWhy = "top-up failed"; return topUp(x, y, z, t, sp) ? PLACED : DEFER; }
-            else if (sp.content != null && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
+            else if (sp.multi && StateInfo.block[w] == StateInfo.block[t]) { deferWhy = "top-up failed"; return topUp(x, y, z, t, sp) ? PLACED : DEFER; }
+            else if (sp.content != ItemInfo.NONE && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
             else if (StateInfo.loose[w] == StateInfo.loose[t]) {
                 // there, but not set the way it should be (a door that should stand open, a repeater's delay ...)
                 for (int attempt = 0; attempt < 4 && !matches(g.get(x, y, z), t); attempt++) {
@@ -1074,14 +1065,14 @@ public final class Builder extends Supplies {
             mustFetch = sp.item;
             if (verbose) log("restock wanted: " + (count(sp.item) == 0 ? "no " + sp.item : "loose blocks low (" + count(scaffoldItem) + ")") + " placed=" + placed + " for " + rel(x, y, z) + " free=" + freeSlots());
             restock(y);
-            mustFetch = null;
+            mustFetch = ItemInfo.NONE;
             // (the client mod) nothing of it in the containers any more: the owner is asked for more (the build waits), then
             // the containers are read again
             if (count(sp.item) == 0 && !stranded && inDepot(sp.item) == 0 && shortage != null && shortage.test(sp.item)) {
                 survey();
                 mustFetch = sp.item;
                 restock(y);
-                mustFetch = null;
+                mustFetch = ItemInfo.NONE;
             }
             if (count(sp.item) == 0) {
                 if (verbose) { int inStock = 0, entries = 0; for (Site.Stock st : stock) if (st.item == sp.item) { inStock += st.count; entries++; } log("OUT OF STOCK " + sp.item + ": depot has " + inStock + " in " + entries + " slots; free inventory slots " + freeSlots() + "; " + inventorySummary()); }
@@ -1102,7 +1093,7 @@ public final class Builder extends Supplies {
             if (!held) { deferWhy = "target scaffolding unsupported"; return DEFER; }
         }
         // TNT next to anything that carries power would go off the moment it is placed
-        if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.TntBlock && c.level().hasNeighborSignal(new net.minecraft.core.BlockPos(x, y, z))) {
+        if (StateInfo.tnt[t] && c.neighborSignal(x, y, z)) {
             skip(i, "would be set off"); return SKIP;
         }
         // sand, gravel, anvils ...: only onto something that will stay there

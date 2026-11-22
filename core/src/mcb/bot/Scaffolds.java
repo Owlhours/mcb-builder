@@ -10,17 +10,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * Upkeep of temporary blocks: taking in the "rope" of loose blocks, taking down scaffolding columns (from the

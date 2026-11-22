@@ -14,8 +14,6 @@ import mcb.build.Judge;
 import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.build.Target;
-import mcb.env.Client;
-import mcb.env.Oracle;
 import mcb.schem.Schem;
 import mcbc.mixin.DeltaTimerAccessor;
 import mcbc.mixin.MinecraftAccessor;
@@ -36,7 +34,7 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 
 /**
  * One build with the real player: the layout (box, grid, containers), the preview, and the run (on the bot thread,
- * in lockstep with the game thread, see {@link Client}).
+ * in lockstep with the game thread, see {@link LocalClient}).
  */
 public final class Job {
     enum State { NEW, RUNNING, PAUSED, DONE }
@@ -52,7 +50,7 @@ public final class Job {
     final String layoutProblem;
 
     volatile State state = State.NEW;
-    Client client;
+    LocalClient client;
     Builder builder;
     Site site;
     Grid grid;
@@ -161,7 +159,7 @@ public final class Job {
         int i = 0;
         for (int y = 0; y < target.sy; y++) for (int z = 0; z < target.sz; z++) for (int x = 0; x < target.sx; x++, i++) {
             q.set(ox + x, oy + y, oz + z);
-            if (!Client.loaded(level, q.getX(), q.getZ())) { p.unloaded++; continue; }
+            if (!LocalClient.loaded(level, q.getX(), q.getZ())) { p.unloaded++; continue; }
             BlockState s = level.getBlockState(q);
             int w = Block.getId(s), t = target.ids[i];
             if (StateInfo.air[w]) continue;
@@ -173,15 +171,15 @@ public final class Job {
             else p.toBreak.add(q.immutable());
         }
         // what the build still needs, against what the player carries (the containers are read at the start)
-        Map<Item, Integer> need = new Site(target, ox, oy, oz, null).stillNeeded(level);
-        Map<Item, Integer> carried = carried();
+        Map<Integer, Integer> need = new Site(target, ox, oy, oz, null).stillNeeded(mcb.mc.Convert.view(level));
+        Map<Integer, Integer> carried = carried();
         for (var e : need.entrySet()) {
             int have = carried.getOrDefault(e.getKey(), 0);
             p.need.put(e.getKey(), e.getValue());
             p.carried.put(e.getKey(), have);
         }
         for (int cx = gx0 >> 4; cx <= gx1 >> 4; cx++) for (int cz = gz0 >> 4; cz <= gz1 >> 4; cz++)
-            if (!Client.loaded(level, cx << 4, cz << 4)) p.unloadedChunks++;
+            if (!LocalClient.loaded(level, cx << 4, cz << 4)) p.unloadedChunks++;
         return p;
     }
 
@@ -191,21 +189,22 @@ public final class Job {
     }
 
     static int breakTicks(int state) {
-        float h = StateInfo.state[state].getBlock().defaultDestroyTime();
+        float h = mcb.mc.BlockFacts.state(state).getBlock().defaultDestroyTime();
         if (h < 0) return -1;
-        return (int) Math.ceil(h * (StateInfo.state[state].requiresCorrectToolForDrops() ? 100 : 30) * 1.05f) + 1;
+        return (int) Math.ceil(h * (mcb.mc.BlockFacts.state(state).requiresCorrectToolForDrops() ? 100 : 30) * 1.05f) + 1;
     }
 
-    Map<Item, Integer> carried() {
-        Map<Item, Integer> m = new LinkedHashMap<>();
+    /** What the player carries: item id -> count, in inventory order. */
+    Map<Integer, Integer> carried() {
+        Map<Integer, Integer> m = new LinkedHashMap<>();
         var inv = mc.player.getInventory();
-        for (int i = 0; i < 36; i++) { ItemStack s = inv.getItem(i); if (!s.isEmpty()) m.merge(s.getItem(), s.getCount(), Integer::sum); }
+        for (int i = 0; i < 36; i++) { ItemStack s = inv.getItem(i); if (!s.isEmpty()) m.merge(mcb.mc.BlockFacts.itemId(s.getItem()), s.getCount(), Integer::sum); }
         return m;
     }
 
     // ------------------------------------------------------------------ start / stop (game thread)
     void start() {
-        client = new Client(mc);
+        client = new LocalClient(mc);
         startMs = System.currentTimeMillis();
         lastHealth = mc.player.getHealth();
         timerAtStart = Compat.timerState();
@@ -297,7 +296,7 @@ public final class Job {
         } catch (java.io.IOException e) { trace = null; }
     }
     private int nRecent;
-    private void remember(Client.Frame f) {
+    private void remember(LocalClient.Frame f) {
         var p = mc.player;
         recent[nRecent++ % recent.length] = String.format(java.util.Locale.ROOT, "t%d pos=%.3f,%.3f,%.3f v=%.3f,%.3f,%.3f ground=%s keys=%s%s%s%s%s%s%s use=%s att=%s/%s yaw=%.1f pitch=%.1f item=%s",
             client.realTicks, p.getX(), p.getY(), p.getZ(), p.getDeltaMovement().x, p.getDeltaMovement().y, p.getDeltaMovement().z, p.onGround(),
@@ -355,7 +354,7 @@ public final class Job {
         }
     }
 
-    private void apply(Client.Frame f) {
+    private void apply(LocalClient.Frame f) {
         var p = mc.player;
         installInput();
         input.forward = f.forward; input.back = f.back; input.left = f.left; input.right = f.right;
@@ -432,7 +431,7 @@ public final class Job {
         try {
             client.awaitFirstTurn();
             run();
-        } catch (Client.Stop s) {
+        } catch (LocalClient.Stop s) {
             phase = "stopped";
         } catch (Throwable t) {
             phase = "crashed: " + t;
@@ -452,18 +451,18 @@ public final class Job {
         int stone = Block.getId(Blocks.STONE.defaultBlockState());
         grid = new Grid(ox, oy, oz, target.sx, target.sy, target.sz, target.ids, gx0, gz0, nx, nz, ny, Block.getId(Blocks.GRASS_BLOCK.defaultBlockState()), false);
         grid.outside = (x, y, z) -> {
-            if (!Client.loaded(level, x, z)) return stone;
+            if (!LocalClient.loaded(level, x, z)) return stone;
             int id = Block.getId(level.getBlockState(new BlockPos(x, y, z)));
             return StateInfo.air[id] ? 0 : id;
         };
         BlockPos.MutableBlockPos q = new BlockPos.MutableBlockPos();
         for (int y = oy - 1; y <= gy1; y++) for (int z = gz0; z <= gz1; z++) for (int x = gx0; x <= gx1; x++) {
-            int id = Client.loaded(level, x, z) ? Block.getId(level.getBlockState(q.set(x, y, z))) : stone;
+            int id = LocalClient.loaded(level, x, z) ? Block.getId(level.getBlockState(q.set(x, y, z))) : stone;
             grid.cur[grid.idx(x, y, z)] = (char) (StateInfo.air[id] ? 0 : id);
         }
         client.clearChanges();
         client.takeLoadedChunks();
-        Oracle oracle = new Oracle(client);
+        ClientOracle oracle = new ClientOracle(client);
 
         // the containers: read what is in them
         Site site0 = new Site(target, ox, oy, oz, carried());
@@ -475,20 +474,20 @@ public final class Job {
             reader.survey();
             for (String f : reader.surveyFailures) Driver.say("supply container " + f);
         }
-        Map<Item, Integer> have = carried();
+        Map<Integer, Integer> have = carried();
         for (Site.Stock s : site0.stock) if (s.count > 0) have.merge(s.item, s.count, Integer::sum);
         site = new Site(target, ox, oy, oz, have);
         site.stock.addAll(site0.stock);
         site.containerBlocks.addAll(site0.containerBlocks);
 
         // enough of everything?
-        Map<Item, Integer> need = site.stillNeeded(level);
+        Map<Integer, Integer> need = site.stillNeeded(mcb.mc.Convert.view(level));
         List<String> shortList = new ArrayList<>();
         for (var e : need.entrySet()) {
             int h = have.getOrDefault(e.getKey(), 0);
             if (h < e.getValue()) shortList.add((e.getValue() - h) + " " + itemName(e.getKey()));
         }
-        int loose = have.getOrDefault(site.scaffoldItem, 0), tower = have.getOrDefault(Items.SCAFFOLDING, 0);
+        int loose = have.getOrDefault(site.scaffoldItem, 0), tower = have.getOrDefault(mcb.build.ItemInfo.SCAFFOLDING, 0);
         if (loose < 32) shortList.add((32 - loose) + " " + itemName(site.scaffoldItem) + " (temporary blocks: any of moss, dirt, netherrack, cobblestone ... the build does not use)");
         if (tower < 16) shortList.add((16 - tower) + " scaffolding");
         if (!shortList.isEmpty()) {
@@ -509,7 +508,7 @@ public final class Job {
             int bt = breakTicks(w);
             if (bt < 0 || bt > Config.maxClearTicks) return false;
             if (!grid.inBox(grid.xOf(i), grid.yOf(i), grid.zOf(i))) return false;
-            if (StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return false;
+            if (mcb.mc.BlockFacts.state(w).getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return false;
             return !isContainerBlock(new BlockPos(grid.xOf(i), grid.yOf(i), grid.zOf(i)));
         });
         if (!notCleared.isEmpty()) Driver.say(notCleared.size() + " blocks in the box could not be cleared (first at " + notCleared.get(0)[0] + " " + notCleared.get(0)[1] + " " + notCleared.get(0)[2] + "); the build goes round them");
@@ -517,14 +516,14 @@ public final class Job {
         phase = "building";
         builder.run();
         phase = "finished: " + builder.status;
-        result = Judge.judge(target, site.snapshot(level), level);
+        result = Judge.judge(target, site.snapshot(mcb.mc.Convert.view(level)), new mcb.mc.GameSurvival(level));
         endText = name + ": " + builder.status + " - " + (result.pass ? "PASS" : "FAIL") + " (" + result.failedSections + " of " + result.sections + " sections fail; missing " + result.missing + ", wrong " + result.wrong + ", left behind " + result.leftover + "); "
             + builder.placed + " placed, " + client.realTicks + " ticks (" + String.format(java.util.Locale.ROOT, "%.1f", client.realTicks / Math.max(1.0, builder.placed)) + " a block), " + setbacks + " setbacks. /mcbc status for more.";
     }
 
     private void addPlaceholders(Site s) {
         for (Container c : containers) {
-            Site.Stock st = new Site.Stock(Items.AIR, 0, c.pos.getX(), c.pos.getY(), c.pos.getZ(), 0);
+            Site.Stock st = new Site.Stock(mcb.build.ItemInfo.AIR, 0, c.pos.getX(), c.pos.getY(), c.pos.getZ(), 0);
             st.ax = c.ax; st.ay = c.ay; st.az = c.az; st.px = c.px; st.py = c.py; st.pz = c.pz;
             s.stock.add(st);
             s.containerBlocks.add(c.pos.asLong());
@@ -533,16 +532,16 @@ public final class Job {
         if (containers.isEmpty()) {
             // inventory only: the start cell stands in for the supply place (the way-out checks go there)
             BlockPos at = mc.player.blockPosition();
-            Site.Stock st = new Site.Stock(Items.AIR, 0, at.getX(), at.getY(), at.getZ(), 0);
+            Site.Stock st = new Site.Stock(mcb.build.ItemInfo.AIR, 0, at.getX(), at.getY(), at.getZ(), 0);
             st.ax = at.getX(); st.ay = at.getY(); st.az = at.getZ(); st.px = at.getX() + 0.5; st.py = at.getY(); st.pz = at.getZ() + 0.5;
             s.stock.add(st);
         }
     }
 
     /** Bot thread: out of an item. Pause and ask; true when the owner resumed (there may be more now). */
-    private boolean askFor(Item item) {
+    private boolean askFor(int item) {
         int still = 0;
-        Map<Item, Integer> need = site.stillNeeded(mc.level);
+        Map<Integer, Integer> need = site.stillNeeded(mcb.mc.Convert.view(mc.level));
         still = need.getOrDefault(item, 0);
         String msg = "out of " + itemName(item) + ": " + still + " more needed. Put them in a supply container (or your inventory), then /mcbc resume.";
         mc.execute(() -> pause(msg));
@@ -556,7 +555,7 @@ public final class Job {
         }
     }
 
-    static String itemName(Item it) { return new ItemStack(it).getHoverName().getString(); }
+    static String itemName(int it) { return new ItemStack(mcb.mc.BlockFacts.item(it)).getHoverName().getString(); }
 
     // ------------------------------------------------------------------ status
     String status() {

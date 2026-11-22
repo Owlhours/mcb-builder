@@ -4,8 +4,8 @@ import mcb.bot.Builder;
 import mcb.bot.Grid;
 import mcb.bot.Rules;
 import mcb.build.Site;
-import mcb.env.Client;
-import mcb.env.Oracle;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /** How {@link ClientRun} makes a builder with the client mod's rules (one place, so that the client check can put an
  *  older planner behind the same runner; see tools/client-check). */

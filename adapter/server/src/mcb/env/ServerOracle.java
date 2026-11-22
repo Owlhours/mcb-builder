@@ -30,21 +30,17 @@ import net.minecraft.world.phys.Vec3;
  * block item turns into for every combination of clicked face, part of the face, view direction and sneaking,
  * measured once against a lone support block in a scratch corner of the world.
  */
-public final class Oracle {
-    public static final int NYAW = 32, NPITCH = 9;
-    public static final int TABLE_SIZE = 6 * 4 * NYAW * NPITCH * 2;
-
+public final class ServerOracle extends mcb.game.Oracle {
     private final Env env;
     private final BotPlayer probe;
     private final Method getPlacementState;
-    private final Map<Item, char[]> tables = new HashMap<>();
+    private final Map<Integer, char[]> tables = new HashMap<>();
     private final BlockPos scratch;
-    public long predictions;
 
-    public Oracle(Env env) { this(env, new BlockPos(-3000, 150, -3000)); }
+    public ServerOracle(Env env) { this(env, new BlockPos(-3000, 150, -3000)); }
 
     /** @param scratch the middle of the 5 x 5 x 5 blocks the oracle may use to try placements (cleared each time) */
-    public Oracle(Env env, BlockPos scratch) {
+    public ServerOracle(Env env, BlockPos scratch) {
         this.env = env;
         this.probe = new BotPlayer(env.server, env.level, new GameProfile(UUID.nameUUIDFromBytes("mcb:probe".getBytes()), "Probe"), 3);
         try {
@@ -54,35 +50,23 @@ public final class Oracle {
         this.scratch = scratch;
     }
 
-    public static int yawClass(float yaw) {
-        float y = yaw % 360f;
-        if (y < -180f) y += 360f; else if (y >= 180f) y -= 360f;
-        int k = (int) Math.floor((y + 180f) / 11.25f);
-        return Math.max(0, Math.min(NYAW - 1, k));
-    }
-    public static float yawCentre(int k) { return -180f + 5.625f + 11.25f * k; }
-    public static int pitchClass(float pitch) { return Math.max(0, Math.min(NPITCH - 1, Math.round((pitch + 80f) / 20f))); }
-    public static float pitchCentre(int k) { return -80f + 20f * k; }
-    public static int index(int face, int quad, int yawClass, int pitchClass, boolean sneak) {
-        return (((face * 4 + quad) * NYAW + yawClass) * NPITCH + pitchClass) * 2 + (sneak ? 1 : 0);
-    }
-
     /** What the crosshair of a player with the given eye position and view direction rests on. */
-    public BlockHitResult pick(Client c, float yaw, float pitch) {
-        Vec3 eye = c.eye();
+    @Override public mcb.game.Hit pick(mcb.game.Client client, float yaw, float pitch) {
+        BotClient c = (BotClient) client;
+        Vec3 eye = c.player.getEyePosition();
         Vec3 view = c.player.calculateViewVector(pitch, yaw);
         double r = c.reach();
         BlockHitResult hit = env.level.clip(new ClipContext(eye, eye.add(view.x * r, view.y * r, view.z * r), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
-        return hit.getType() == HitResult.Type.BLOCK ? hit : null;
+        return hit.getType() == HitResult.Type.BLOCK ? mcb.mc.Convert.hit(hit) : null;
     }
 
-    public final BlockPos.MutableBlockPos placedAt = new BlockPos.MutableBlockPos();
-
     /**
-     * The state that would appear, and where ({@link #placedAt}), if the player used the item now on the given hit
+     * The state that would appear, and where ({@link #placedX} ...), if the player used the item now on the given hit
      * while looking along (yaw, pitch). 0 if nothing would be placed.
      */
-    public int predict(Item item, BlockHitResult hit, float yaw, float pitch, boolean sneak) {
+    @Override public int predict(int itemId, mcb.game.Hit h, float yaw, float pitch, boolean sneak) { return predict(mcb.mc.BlockFacts.item(itemId), mcb.mc.Convert.hit(h), yaw, pitch, sneak); }
+
+    private int predict(Item item, BlockHitResult hit, float yaw, float pitch, boolean sneak) {
         predictions++;
         if (!(item instanceof BlockItem bi)) return 0;
         probe.setYRot(yaw);
@@ -96,7 +80,8 @@ public final class Oracle {
             if (ctx2 == null) return 0;
             BlockState st = (BlockState) getPlacementState.invoke(bi, ctx2);
             if (st == null) return 0;
-            placedAt.set(ctx2.getClickedPos());
+            BlockPos at = ctx2.getClickedPos();
+            placedX = at.getX(); placedY = at.getY(); placedZ = at.getZ();
             return Block.getId(st);
         } catch (ReflectiveOperationException | RuntimeException e) {
             return 0;
@@ -109,7 +94,9 @@ public final class Oracle {
      * Would the block at one position still stand if the block at another (next to it) were taken away? Asked of the
      * game's own canSurvive, against a view of the world in which that one position is air (nothing is changed).
      */
-    public boolean survivesWithout(BlockPos at, BlockPos gone) {
+    @Override public boolean survivesWithout(int x, int y, int z, int gx, int gy, int gz) { return survivesWithout(new BlockPos(x, y, z), new BlockPos(gx, gy, gz)); }
+
+    private boolean survivesWithout(BlockPos at, BlockPos gone) {
         BlockState st = env.level.getBlockState(at);
         java.lang.reflect.InvocationHandler h = (proxy, m, args) -> {
             if (args != null && args.length == 1 && gone.equals(args[0])) {
@@ -125,7 +112,7 @@ public final class Oracle {
     }
 
     /** Can this block state exist with nothing around it (true), or does it need something to sit on / hang from (false)? */
-    public boolean floats(int stateId) {
+    @Override public boolean floats(int stateId) {
         if (floats == null) floats = new byte[Block.BLOCK_STATE_REGISTRY.size()];
         if (floats[stateId] == 0) {
             for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
@@ -142,8 +129,9 @@ public final class Oracle {
     private static final Block[] BASES = {Blocks.STONE, Blocks.DIRT, Blocks.FARMLAND, Blocks.SAND, Blocks.SOUL_SAND, Blocks.END_STONE, Blocks.JUNGLE_LOG};
 
     /** See class comment. Index with {@link #index}. Entries are state ids, 0 = that click places nothing. */
-    public char[] table(Item item) {
-        char[] t = tables.get(item);
+    @Override public char[] table(int itemId) {
+        Item item = mcb.mc.BlockFacts.item(itemId);
+        char[] t = tables.get(itemId);
         if (t != null) return t;
         t = new char[TABLE_SIZE];
         if (item instanceof BlockItem) {
@@ -179,7 +167,7 @@ public final class Oracle {
                 if (any) break;
             }
         }
-        tables.put(item, t);
+        tables.put(itemId, t);
         return t;
     }
 }

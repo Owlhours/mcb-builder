@@ -2,7 +2,6 @@ package mcbc;
 
 import java.util.ArrayList;
 import java.util.List;
-import mcb.env.Client;
 import mcbc.mixin.MinecraftAccessor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -21,7 +20,7 @@ public final class Driver {
     public static Preview preview;
 
     // what the bot asked for in this tick, for the keybind hook
-    private static Client.Frame clicks;
+    private static LocalClient.Frame clicks;
     private static boolean attackHeld;
 
     /** Minecraft.tick HEAD: queued packets are handled; the world is as the bot will see it. */
@@ -42,12 +41,12 @@ public final class Driver {
     }
 
     /** Called by the job after the frame is applied: the clicks to make at the keybinds point of this tick. */
-    static void setClicks(Client.Frame f) { clicks = f; attackHeld = f.attackHeld; }
+    static void setClicks(LocalClient.Frame f) { clicks = f; attackHeld = f.attackHeld; }
     static void clearClicks() { clicks = null; attackHeld = false; }
 
     /** Minecraft.handleKeybinds HEAD (only with no screen open). */
     public static void keybinds(Minecraft mc) {
-        Client.Frame f = clicks;
+        LocalClient.Frame f = clicks;
         Job j = job;
         if (f == null || j == null || !j.running()) return;
         clicks = null;
@@ -74,7 +73,7 @@ public final class Driver {
         return h == null ? "null" : h.getType() + " " + h.getClass().getSimpleName();
     }
 
-    private static boolean hitMatches(Minecraft mc, Client.Frame f) {
+    private static boolean hitMatches(Minecraft mc, LocalClient.Frame f) {
         HitResult h = mc.hitResult;
         if (!(h instanceof BlockHitResult b) || h.getType() != HitResult.Type.BLOCK) return false;
         return f.expectPos == null || (b.getBlockPos().equals(f.expectPos) && b.getDirection().get3DDataValue() == f.expectFace);

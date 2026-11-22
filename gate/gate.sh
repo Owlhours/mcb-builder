@@ -18,7 +18,7 @@ if [ "${1:-}" = "--record" ]; then RECORD=1; shift; fi
 server_cp
 OUT=$PWD/build/headless
 rm -rf "$OUT"; mkdir -p "$OUT"
-compile "$OUT" "$SERVER_CP" core/src adapter/src adapter/headless/src gate/src
+compile "$OUT" "$SERVER_CP" core/src adapter/src adapter/server/src adapter/headless/src gate/src
 CP="$OUT:$SERVER_CP"
 EXPECTED=gate/expected/$MC.tsv
 W=build/gate; rm -rf "$W"; mkdir -p "$W"

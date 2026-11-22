@@ -23,7 +23,7 @@ final class Dev {
         mcb.build.StateInfo.init();
         var site = new mcb.build.Site(new mcb.build.Target(schem), 0, 0, 0, null);
         StringBuilder sb = new StringBuilder();
-        for (var e : site.requirements().entrySet()) sb.append(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(e.getKey())).append(' ').append(e.getValue()).append('\n');
+        for (var e : site.requirements().entrySet()) sb.append(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(mcb.mc.BlockFacts.item(e.getKey()))).append(' ').append(e.getValue()).append('\n');
         sb.append("#size ").append(schem.sx).append(' ').append(schem.sy).append(' ').append(schem.sz).append('\n');
         Files.writeString(Path.of(FILE + ".needs"), sb.toString());
     }

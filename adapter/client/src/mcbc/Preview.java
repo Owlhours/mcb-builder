@@ -18,7 +18,7 @@ public final class Preview {
     public static final class Plan {
         public final List<BlockPos> toBreak = new ArrayList<>(), tooHard = new ArrayList<>(), fluids = new ArrayList<>();
         public int alreadyRight, unloaded, unloadedChunks, containersInBox;
-        public final Map<Item, Integer> need = new LinkedHashMap<>(), carried = new LinkedHashMap<>();
+        public final Map<Integer, Integer> need = new LinkedHashMap<>(), carried = new LinkedHashMap<>();
     }
 
     final Job job;

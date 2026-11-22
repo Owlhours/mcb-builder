@@ -8,9 +8,9 @@ import mcb.build.Judge;
 import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.build.Target;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
-import mcb.env.Oracle;
+import mcb.env.ServerOracle;
 import mcb.schem.Schem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -63,7 +63,7 @@ public final class Job {
     Site site;
     Grid grid;
     Builder builder;
-    Client client;
+    BotClient client;
     volatile boolean paused, stopAsked;
     String phase = "waiting to start";
     long startTick;
@@ -80,8 +80,8 @@ public final class Job {
         towerCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 8);
         // the chest rows as Site.setUp will lay them out (same counts)
         Site dry = new Site(target, ox, oy, oz);
-        long stacks = stacks(dry.scaffoldItem, scaffoldCount) + stacks(net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
-        for (Map.Entry<net.minecraft.world.item.Item, Integer> e : dry.requirements().entrySet()) { int n = e.getValue(); stacks += stacks(e.getKey(), n + Math.max(4, n / 20)); }
+        long stacks = stacks(mcb.mc.BlockFacts.item(dry.scaffoldItem), scaffoldCount) + stacks(net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
+        for (Map.Entry<Integer, Integer> e : dry.requirements().entrySet()) { int n = e.getValue(); stacks += stacks(mcb.mc.BlockFacts.item(e.getKey()), n + Math.max(4, n / 20)); }
         int perStack = 45 * Site.STACK_HEIGHT;
         int chestStacks = (int) Math.max(1, (stacks + perStack - 1) / perStack);
         int depotCols = Math.max(3, Math.min(24, (target.sx + 1) / 2));
@@ -170,7 +170,7 @@ public final class Job {
             site = new Site(target, ox, oy, oz);
             mcb.env.Depot.setUp(env, site, scaffoldCount, towerCount);
             env.pinSite(ox - marginX, oz - depotDepth, ox + target.sx + marginX, oz + target.sz + 6, ox, oz - 2);
-            Oracle oracle = new Oracle(env, scratch);
+            ServerOracle oracle = new ServerOracle(env, scratch);
             client = env.join("Builder", ox + 0.5, oy, oz - 2 + 0.5);
             for (int i = 0; i < 3; i++) client.tick();
             client.clearChanges();
@@ -203,7 +203,7 @@ public final class Job {
             last = this;
         }
         if (server.isRunning() && site != null) {
-            result = Judge.judge(target, site.snapshot(level), level);
+            result = Judge.judge(target, site.snapshot(mcb.mc.Convert.view(level)), new mcb.mc.GameSurvival(level));
             tell.accept(Component.literal("[mcb] " + name + ": " + phase + " after " + ticks() + " ticks - " + (result.pass ? "PASS" : "FAIL") + " (" + result.failedSections + " of " + result.sections + " sections fail; missing " + result.missing + ", wrong " + result.wrong + ", left behind " + result.leftover + "). /mcb judge for the sections."));
         }
     }

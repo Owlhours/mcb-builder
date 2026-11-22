@@ -1,4 +1,4 @@
-package mcb.env;
+package mcbc;
 
 import com.mojang.authlib.GameProfile;
 import java.lang.reflect.Method;
@@ -30,19 +30,15 @@ import net.minecraft.world.phys.Vec3;
  * The per-item tables and the "does it float" question need a lone block with nothing around it. There is no
  * scratch world on a client, so they use a 5 x 5 x 5 spot of air near the top of the world in a loaded chunk, and
  * set blocks there in the client's copy of the world only, putting the air back before the game runs again (the bot
- * thinks while the game thread waits, see {@link Client}). The server never hears of it.
+ * thinks while the game thread waits, see {@link LocalClient}). The server never hears of it.
  */
-public final class Oracle {
-    public static final int NYAW = 32, NPITCH = 9;
-    public static final int TABLE_SIZE = 6 * 4 * NYAW * NPITCH * 2;
-
-    private final Client client;
+public final class ClientOracle extends mcb.game.Oracle {
+    private final LocalClient client;
     private final RemotePlayer probe;
     private final Method getPlacementState;
-    private final Map<Item, char[]> tables = new HashMap<>();
-    public long predictions;
+    private final Map<Integer, char[]> tables = new HashMap<>();
 
-    public Oracle(Client client) {
+    public ClientOracle(LocalClient client) {
         this.client = client;
         ClientLevel level = client.level();
         this.probe = new RemotePlayer(level, new GameProfile(UUID.nameUUIDFromBytes("mcb:probe".getBytes()), "Probe"));
@@ -52,19 +48,6 @@ public final class Oracle {
         } catch (NoSuchMethodException e) { throw new RuntimeException(e); }
     }
 
-    public static int yawClass(float yaw) {
-        float y = yaw % 360f;
-        if (y < -180f) y += 360f; else if (y >= 180f) y -= 360f;
-        int k = (int) Math.floor((y + 180f) / 11.25f);
-        return Math.max(0, Math.min(NYAW - 1, k));
-    }
-    public static float yawCentre(int k) { return -180f + 5.625f + 11.25f * k; }
-    public static int pitchClass(float pitch) { return Math.max(0, Math.min(NPITCH - 1, Math.round((pitch + 80f) / 20f))); }
-    public static float pitchCentre(int k) { return -80f + 20f * k; }
-    public static int index(int face, int quad, int yawClass, int pitchClass, boolean sneak) {
-        return (((face * 4 + quad) * NYAW + yawClass) * NPITCH + pitchClass) * 2 + (sneak ? 1 : 0);
-    }
-
     public static Vec3 viewVector(float pitch, float yaw) {
         float p = pitch * ((float) Math.PI / 180f), y = -yaw * ((float) Math.PI / 180f);
         float cy = net.minecraft.util.Mth.cos(y), sy = net.minecraft.util.Mth.sin(y), cp = net.minecraft.util.Mth.cos(p), sp = net.minecraft.util.Mth.sin(p);
@@ -72,17 +55,18 @@ public final class Oracle {
     }
 
     /** What the crosshair of a player with the client's eye position and the given view direction rests on (blocks only). */
-    public BlockHitResult pick(Client c, float yaw, float pitch) {
-        Vec3 eye = c.eye();
+    @Override public mcb.game.Hit pick(mcb.game.Client client, float yaw, float pitch) {
+        LocalClient c = (LocalClient) client;
+        Vec3 eye = c.player.getEyePosition();
         Vec3 view = viewVector(pitch, yaw);
         double r = c.reach();
         BlockHitResult hit = c.level().clip(new ClipContext(eye, eye.add(view.x * r, view.y * r, view.z * r), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
-        return hit.getType() == HitResult.Type.BLOCK ? hit : null;
+        return hit.getType() == HitResult.Type.BLOCK ? mcb.mc.Convert.hit(hit) : null;
     }
 
-    public final BlockPos.MutableBlockPos placedAt = new BlockPos.MutableBlockPos();
+    @Override public int predict(int itemId, mcb.game.Hit h, float yaw, float pitch, boolean sneak) { return predict(mcb.mc.BlockFacts.item(itemId), mcb.mc.Convert.hit(h), yaw, pitch, sneak); }
 
-    public int predict(Item item, BlockHitResult hit, float yaw, float pitch, boolean sneak) {
+    private int predict(Item item, BlockHitResult hit, float yaw, float pitch, boolean sneak) {
         predictions++;
         if (!(item instanceof BlockItem bi)) return 0;
         probe.setYRot(yaw);
@@ -96,14 +80,17 @@ public final class Oracle {
             if (ctx2 == null) return 0;
             BlockState st = (BlockState) getPlacementState.invoke(bi, ctx2);
             if (st == null) return 0;
-            placedAt.set(ctx2.getClickedPos());
+            BlockPos at = ctx2.getClickedPos();
+            placedX = at.getX(); placedY = at.getY(); placedZ = at.getZ();
             return Block.getId(st);
         } catch (ReflectiveOperationException | RuntimeException e) {
             return 0;
         }
     }
 
-    public boolean survivesWithout(BlockPos at, BlockPos gone) {
+    @Override public boolean survivesWithout(int x, int y, int z, int gx, int gy, int gz) { return survivesWithout(new BlockPos(x, y, z), new BlockPos(gx, gy, gz)); }
+
+    private boolean survivesWithout(BlockPos at, BlockPos gone) {
         ClientLevel level = client.level();
         BlockState st = level.getBlockState(at);
         java.lang.reflect.InvocationHandler h = (proxy, m, args) -> {
@@ -130,7 +117,7 @@ public final class Oracle {
         int px = (int) Math.floor(client.x()), pz = (int) Math.floor(client.z());
         for (int dy = 0; dy < 40; dy += 5) for (int d = 0; d < 32; d += 5) {
             BlockPos p = new BlockPos(px + d, top - dy, pz);
-            if (Client.loaded(level, p.getX(), p.getZ()) && allAir(level, p)) { scratch = p; return p; }
+            if (LocalClient.loaded(level, p.getX(), p.getZ()) && allAir(level, p)) { scratch = p; return p; }
         }
         throw new IllegalStateException("no scratch spot of air near the top of the world");
     }
@@ -145,7 +132,7 @@ public final class Oracle {
 
     private byte[] floats;
 
-    public boolean floats(int stateId) {
+    @Override public boolean floats(int stateId) {
         if (floats == null) floats = new byte[Block.BLOCK_STATE_REGISTRY.size()];
         if (floats[stateId] == 0) {
             BlockPos s = scratch();
@@ -158,8 +145,9 @@ public final class Oracle {
 
     private static final Block[] BASES = {Blocks.STONE, Blocks.DIRT, Blocks.FARMLAND, Blocks.SAND, Blocks.SOUL_SAND, Blocks.END_STONE, Blocks.JUNGLE_LOG};
 
-    public char[] table(Item item) {
-        char[] t = tables.get(item);
+    @Override public char[] table(int itemId) {
+        Item item = mcb.mc.BlockFacts.item(itemId);
+        char[] t = tables.get(itemId);
         if (t != null) return t;
         t = new char[TABLE_SIZE];
         if (item instanceof BlockItem) {
@@ -199,7 +187,7 @@ public final class Oracle {
                 client.suppressChanges(false);
             }
         }
-        tables.put(item, t);
+        tables.put(itemId, t);
         return t;
     }
 }

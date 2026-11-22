@@ -1,5 +1,9 @@
 package mcb.bot;
 
+import mcb.game.Hit;
+
+import mcb.build.ItemInfo;
+import mcb.game.Stack;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
@@ -10,17 +14,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * What the parts of the builder share: the picture of the site, what is carried and where the supplies are, which
@@ -32,10 +27,10 @@ import net.minecraft.world.phys.BlockHitResult;
 abstract class BuildState extends Body {
     final Oracle oracle;
     final List<Site.Stock> stock;
-    final Item scaffoldItem;
+    final int scaffoldItem;
     final int scaffoldState;
     /** The climbable kind of temporary block (real scaffolding): put up as columns that stay until they are in the way or the build is done. */
-    final Item towerItem = Items.SCAFFOLDING;
+    final int towerItem = ItemInfo.SCAFFOLDING;
     final Nav nav;
     final IntOpenHashSet scaffold = new IntOpenHashSet();
     final int[] scaffoldInColumn;         // per (x,z) column: number of scaffold cells
@@ -76,7 +71,7 @@ abstract class BuildState extends Body {
             if (g.tgt[g.idx(x, y, z)] != 0) columnTop[col(x, z)] = (short) y;
         }
         if (depot) {
-            int chest = Block.getId(net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
+            int chest = StateInfo.defaultState("chest");
             for (Site.Stock s : stock) {
                 g.set(s.chestX, s.chestY, s.chestZ, chest);
                 g.set(s.chestX + 1, s.chestY, s.chestZ, chest);
@@ -154,7 +149,7 @@ abstract class BuildState extends Body {
         if (!restocking && c.screenOpen() && !inventoryOpenByMe) {
             // a click opened some block's screen (a chest, a hopper ...): close it again, or the bot stands frozen
             strayScreens++;
-            if (verbose && strayScreens < 10) { log("UNEXPECTED SCREEN " + c.menu().getClass().getSimpleName() + " lastHit=" + (c.lastHit() == null ? "none" : StateInfo.name(g.get(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ())))); new Exception().printStackTrace(System.out); }
+            if (verbose && strayScreens < 10) { log("UNEXPECTED SCREEN " + c.menuName() + " lastHit=" + (c.lastHit() == null ? "none" : StateInfo.name(g.get(c.lastHit().x, c.lastHit().y, c.lastHit().z)))); new Exception().printStackTrace(System.out); }
             c.closeScreen();
             super.tick();
         }
@@ -171,7 +166,7 @@ abstract class BuildState extends Body {
         super.onBlockChange(x, y, z, state);
         if (!g.in(x, y, z)) return;
         if (WATCH != null && x - g.ox == WATCH[0] && y - g.oy == WATCH[1] && z - g.oz == WATCH[2]) {
-            log("WATCH " + rel(x, y, z) + " -> " + StateInfo.name(state) + " by " + StackWalker.getInstance().walk(st -> st.skip(3).limit(7).map(f -> f.getMethodName()).toList()) + " lastHit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ())));
+            log("WATCH " + rel(x, y, z) + " -> " + StateInfo.name(state) + " by " + StackWalker.getInstance().walk(st -> st.skip(3).limit(7).map(f -> f.getMethodName()).toList()) + " lastHit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().x, c.lastHit().y, c.lastHit().z)));
         }
         int i = g.idx(x, y, z);
         if (StateInfo.technical[state] && pistonFaces(x, y, z)) { machineLive = true; if (g.tgt[i] != 0) pushedInto.set(i); }
@@ -200,18 +195,18 @@ abstract class BuildState extends Body {
 
     /** Scaffolding is a quick-to-break block; a stray target block may take far longer to break by hand. */
     int breakTicks(int state) {
-        float h = StateInfo.state[state].getBlock().defaultDestroyTime();
+        float h = StateInfo.destroyTime[state];
         if (h < 0) return -1;
-        return (int) Math.min(6000, 20 + h * (StateInfo.state[state].requiresCorrectToolForDrops() ? 100 : 30) * 1.2f);
+        return (int) Math.min(6000, 20 + h * (StateInfo.needsTool[state] ? 100 : 30) * 1.2f);
     }
 
     static final class Spec {
         boolean placeable;
-        Item item;
+        int item;
         int first;        // the state the first click must produce
         char[] table;     // placement table, or null if any click that places the item will do
         boolean multi;    // needs further clicks on itself after the first (double slab, several snow layers ...)
-        Item content;     // potted plant: the plant to put into the pot after placing it
+        int content = ItemInfo.NONE;   // potted plant: the plant to put into the pot after placing it (else NONE)
         boolean chest;    // halves of a double chest: which neighbour it joins is decided when the second half goes in
     }
 
@@ -223,22 +218,16 @@ abstract class BuildState extends Body {
         s = new Spec();
         specs[state] = s;
         s.item = StateInfo.item[state];
-        if (s.item == Items.AIR || StateInfo.itemCount[state] == 0) return s;
-        BlockState st = StateInfo.state[state], first = st;
+        if (s.item == ItemInfo.AIR || StateInfo.itemCount[state] == 0) return s;
+        int first = state;
         if (StateInfo.itemCount[state] > 1) {
             s.multi = true;
-            if (st.hasProperty(BlockStateProperties.SLAB_TYPE)) first = st.setValue(BlockStateProperties.SLAB_TYPE, SlabType.BOTTOM);
-            if (st.hasProperty(BlockStateProperties.LAYERS)) first = st.setValue(BlockStateProperties.LAYERS, 1);
-            if (st.hasProperty(BlockStateProperties.CANDLES)) first = st.setValue(BlockStateProperties.CANDLES, 1);
-            if (st.hasProperty(BlockStateProperties.PICKLES)) first = st.setValue(BlockStateProperties.PICKLES, 1);
-            if (st.hasProperty(BlockStateProperties.EGGS)) first = st.setValue(BlockStateProperties.EGGS, 1);
-            if (st.hasProperty(BlockStateProperties.FLOWER_AMOUNT)) first = st.setValue(BlockStateProperties.FLOWER_AMOUNT, 1);
-            if (st.hasProperty(BlockStateProperties.SEGMENT_AMOUNT)) first = st.setValue(BlockStateProperties.SEGMENT_AMOUNT, 1);
+            first = StateInfo.firstState[state];
         }
-        s.content = StateInfo.contentItem(state);
-        if (s.content != null) first = net.minecraft.world.level.block.Blocks.FLOWER_POT.defaultBlockState();
-        s.first = Block.getId(first);
-        s.chest = st.getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
+        s.content = StateInfo.contentItem[state];
+        if (s.content != ItemInfo.NONE) first = StateInfo.defaultState("flower_pot");
+        s.first = first;
+        s.chest = StateInfo.chest[state];
         char[] t = oracle.table(s.item);
         int want = StateInfo.loose[s.first];
         boolean any = false, all = true;
@@ -247,7 +236,7 @@ abstract class BuildState extends Body {
         }
         s.placeable = any;
         s.table = all ? null : t;
-        if (st.getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO) { s.placeable = true; s.table = null; }   // (see shootFor)
+        if (StateInfo.bamboo[state]) { s.placeable = true; s.table = null; }   // (see shootFor)
         return s;
     }
 
@@ -257,20 +246,19 @@ abstract class BuildState extends Body {
         // bamboo goes in as a shoot; the shoot turns into bamboo when the next piece is put on top of it
         if (shootFor(world, target)) return true;
         // a chest half that waits for (or has found) its other half
-        return StateInfo.loose[world] == StateInfo.loose[target] && StateInfo.state[target].getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
+        return StateInfo.loose[world] == StateInfo.loose[target] && StateInfo.chest[target];
     }
 
     /** For a chest cell: the exact state to produce now - joined with its partner if that is there, single otherwise. */
     int chestWant(int x, int y, int z, int t) {
-        BlockState st = StateInfo.state[t];
-        var type = st.getValue(net.minecraft.world.level.block.ChestBlock.TYPE);
-        if (type == net.minecraft.world.level.block.state.properties.ChestType.SINGLE) return t;
-        var dir = net.minecraft.world.level.block.ChestBlock.getConnectedDirection(st);
-        int p = g.get(x + dir.getStepX(), y, z + dir.getStepZ());
-        if (p != 0 && StateInfo.state[p].getBlock() == st.getBlock()
-            && StateInfo.state[p].getValue(net.minecraft.world.level.block.ChestBlock.FACING) == st.getValue(net.minecraft.world.level.block.ChestBlock.FACING)
-            && StateInfo.state[p].getValue(net.minecraft.world.level.block.ChestBlock.TYPE) != type) return t;
-        return Block.getId(st.setValue(net.minecraft.world.level.block.ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.SINGLE));
+        int type = StateInfo.chestType[t];
+        if (type == 0) return t;   // (single)
+        int dir = StateInfo.chestLink[t];
+        int p = g.get(x + Hit.DX[dir], y, z + Hit.DZ[dir]);
+        if (p != 0 && StateInfo.block[p] == StateInfo.block[t]
+            && StateInfo.chestFacing[p] == StateInfo.chestFacing[t]
+            && StateInfo.chestType[p] != type) return t;
+        return StateInfo.chestSingle[t];
     }
 
     boolean needs(int i) {
@@ -297,7 +285,7 @@ abstract class BuildState extends Body {
     /** Set once every column has been gone through: what is left are the cells that were put off. */
     boolean mainDone;
 
-    final java.util.HashSet<Item> carried = new java.util.HashSet<>();
+    final java.util.HashSet<Integer> carried = new java.util.HashSet<>();
 
     public long escapes;
 
@@ -325,26 +313,26 @@ abstract class BuildState extends Body {
 
     /** Same block as far as judging goes (a filled cauldron counts as a cauldron ...). */
     static boolean sameKind(int a, int b) {
-        return StateInfo.state[StateInfo.canon[a]].getBlock() == StateInfo.state[StateInfo.canon[b]].getBlock();
+        return StateInfo.block[StateInfo.canon[a]] == StateInfo.block[StateInfo.canon[b]];
     }
 
     /** A block of a supply container: in the depot, a chest north of the build; otherwise any block of a registered
      *  container (both halves of a double chest). */
     boolean isSupplyChest(int x, int y, int z) {
-        if (!depot) return supplyBlocks.contains(net.minecraft.core.BlockPos.asLong(x, y, z));
-        return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
+        if (!depot) return supplyBlocks.contains(mcb.game.Pos.pack(x, y, z));
+        return z < g.oz - 2 && StateInfo.chest[g.get(x, y, z)];
     }
     final it.unimi.dsi.fastutil.longs.LongOpenHashSet supplyBlocks = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
 
     /** Blocks that turn into one another by themselves and need not be told apart here. */
     /** Is the world block the bamboo shoot that stands in for a piece of bamboo in the target? */
     static boolean shootFor(int world, int target) {
-        return StateInfo.state[target].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO && StateInfo.state[world].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO_SAPLING;
+        return StateInfo.bamboo[target] && StateInfo.bambooShoot[world];
     }
 
     static boolean sameFamily(int a, int b) {
         if (shootFor(a, b) || shootFor(b, a)) return true;
-        String na = StateInfo.state[a].getBlock().getDescriptionId(), nb = StateInfo.state[b].getBlock().getDescriptionId();
+        String na = StateInfo.descriptionId[a], nb = StateInfo.descriptionId[b];
         return na.replace("wall_", "").equals(nb.replace("wall_", "")) || na.replace("_plant", "").equals(nb.replace("_plant", ""));
     }
 
@@ -411,10 +399,10 @@ abstract class BuildState extends Body {
             pushCells = new BitSet(g.tgt.length);
             for (int i = 0; i < g.tgt.length; i++) {
                 int st = g.tgt[i];
-                if (st == 0 || !(StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.piston.PistonBaseBlock)) continue;
+                if (st == 0 || !StateInfo.pistonBase[st]) continue;
                 anyPiston = true;
-                var f = StateInfo.state[st].getValue(BlockStateProperties.FACING);
-                int px = g.xOf(i) + f.getStepX(), py = g.yOf(i) + f.getStepY(), pz = g.zOf(i) + f.getStepZ();
+                int f = StateInfo.facing[st];
+                int px = g.xOf(i) + Hit.DX[f], py = g.yOf(i) + Hit.DY[f], pz = g.zOf(i) + Hit.DZ[f];
                 if (g.in(px, py, pz)) pushCells.set(g.idx(px, py, pz));
             }
         }
@@ -445,15 +433,14 @@ abstract class BuildState extends Body {
         afterDoor.defaultReturnValue(-1);
         for (int i = 0; i < g.tgt.length; i++) {
             int t = g.tgt[i];
-            if (t == 0 || !(StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.DoorBlock)) continue;
-            BlockState st = StateInfo.state[t];
-            if (st.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER) continue;
-            var facing = st.getValue(BlockStateProperties.HORIZONTAL_FACING);
-            boolean wantRight = st.getValue(BlockStateProperties.DOOR_HINGE) == net.minecraft.world.level.block.state.properties.DoorHingeSide.RIGHT;
-            var left = facing.getCounterClockWise(); var right = facing.getClockWise();
+            if (t == 0 || !StateInfo.door[t]) continue;
+            if (!StateInfo.doorLower[t]) continue;
+            int facing = StateInfo.doorFacing[t];
+            boolean wantRight = StateInfo.doorHingeRight[t];
+            int left = Hit.counterClockwise(facing), right = Hit.clockwise(facing);
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-            int[] l = {cellOrMinus(x + left.getStepX(), y, z + left.getStepZ()), cellOrMinus(x + left.getStepX(), y + 1, z + left.getStepZ())};
-            int[] r = {cellOrMinus(x + right.getStepX(), y, z + right.getStepZ()), cellOrMinus(x + right.getStepX(), y + 1, z + right.getStepZ())};
+            int[] l = {cellOrMinus(x + Hit.DX[left], y, z + Hit.DZ[left]), cellOrMinus(x + Hit.DX[left], y + 1, z + Hit.DZ[left])};
+            int[] r = {cellOrMinus(x + Hit.DX[right], y, z + Hit.DZ[right]), cellOrMinus(x + Hit.DX[right], y + 1, z + Hit.DZ[right])};
             int balance = 0;
             for (int c2 : l) if (c2 >= 0 && StateInfo.fullCube[g.tgt[c2]]) balance--;
             for (int c2 : r) if (c2 >= 0 && StateInfo.fullCube[g.tgt[c2]]) balance++;
@@ -488,8 +475,7 @@ abstract class BuildState extends Body {
     private int cellOrMinus(int x, int y, int z) { return g.in(x, y, z) ? g.idx(x, y, z) : -1; }
 
     private static boolean lowerDoor(int t) {
-        return t != 0 && StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.DoorBlock
-            && StateInfo.state[t].getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER;
+        return t != 0 && StateInfo.door[t] && StateInfo.doorLower[t];
     }
 
     /** Must this cell still wait for a door beside it to go in first? (Not any more once traps are accepted: by then the door has had its chances.) */
@@ -523,7 +509,7 @@ abstract class BuildState extends Body {
     static final boolean WEB_LATE = System.getenv("MCB_NO_WEBLATE") == null;
     /** set once the end game's first clean-up is over */
     boolean websToo;
-    static boolean isCobweb(int state) { return StateInfo.state[state].getBlock() == net.minecraft.world.level.block.Blocks.COBWEB; }
+    static boolean isCobweb(int state) { return StateInfo.cobweb[state]; }
 
     /** Cells of the build that the bot itself broke open (to get out of somewhere); they are put back at the end. */
     final IntOpenHashSet brokenOut = new IntOpenHashSet();
@@ -552,7 +538,7 @@ abstract class BuildState extends Body {
     final it.unimi.dsi.fastutil.ints.IntArrayList scafLog = new it.unimi.dsi.fastutil.ints.IntArrayList();
     public long forcedWorse, tidied;
 
-    int inDepot(Item it) { int n = 0; for (Site.Stock st : stock) if (st.item == it && st.count > 0) n += st.count; return n; }
+    int inDepot(int it) { int n = 0; for (Site.Stock st : stock) if (st.item == it && st.count > 0) n += st.count; return n; }
 
     void checkScaffold() {
         boolean have = count(scaffoldItem) > 0;
@@ -593,7 +579,7 @@ abstract class BuildState extends Body {
     public long ropeUndone, ropeOrphaned;
 
     /** The item the next placement needs (so it can be taken in hand before the bot leans out over an edge). */
-    Item wantHeld;
+    int wantHeld = ItemInfo.NONE;
 
     public long gatesPassed;
 
@@ -641,14 +627,14 @@ abstract class BuildState extends Body {
 
     public int scaffoldLeft() { return scaffold.size(); }
 
-    Item mustFetch;
+    int mustFetch = ItemInfo.NONE;
     /** Set when the bot could not get to the chests; it then works with what it has. */
     boolean stranded;
     long strandedTick;
 
     public String inventorySummary() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 36; i++) { ItemStack st = c.inventorySlot(i); if (!st.isEmpty()) sb.append(i).append(':').append(st.getItem()).append('x').append(st.getCount()).append(' '); }
+        for (int i = 0; i < 36; i++) { Stack st = c.inventorySlot(i); if (!st.isEmpty()) sb.append(i).append(':').append(st.getItem()).append('x').append(st.getCount()).append(' '); }
         return sb.toString();
     }
 
@@ -712,7 +698,7 @@ abstract class BuildState extends Body {
     /** While planning where to stand for a block of this state: no spot that the block would shut in (0 = any spot). */
     int avoidSeal;
     abstract boolean search(int x, int y, int z, int maxExpand);
-    abstract int spare(Item it);
+    abstract int spare(int it);
     abstract void spent(int state);
     abstract boolean unstick();
     abstract void guardHealth();
@@ -773,7 +759,7 @@ abstract class BuildState extends Body {
     abstract void cleanupImpl();
     abstract void sweepScaffold();
     // Supplies
-    abstract int missingNow(Map<Item, Integer> need, Item it);
+    abstract int missingNow(Map<Integer, Integer> need, int it);
     abstract void restock(int fromLayer);
     abstract void restock0(int fromLayer);
     abstract void restock0Impl(int fromLayer);

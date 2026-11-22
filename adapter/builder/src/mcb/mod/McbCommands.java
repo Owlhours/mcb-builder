@@ -148,7 +148,7 @@ public final class McbCommands {
         StringBuilder sb = new StringBuilder("[mcb] " + j.name + ": " + j.phase);
         if (j.builder != null) {
             sb.append(", ").append(mcb.bot.ModView.phase(j.builder)).append(j.paused ? " (paused)" : "");
-            Judge.Result r = Judge.judge(j.target, j.site.snapshot(j.level), j.level);
+            Judge.Result r = Judge.judge(j.target, j.site.snapshot(mcb.mc.Convert.view(j.level)), new mcb.mc.GameSurvival(j.level));
             long right = r.targetCells - r.missing - r.wrong;
             sb.append(" | cells right ").append(right).append(" / ").append(r.targetCells)
               .append(", placed ").append(j.builder.placed).append(", scaffolding standing ").append(mcb.bot.ModView.scaffold(j.builder))
@@ -161,7 +161,7 @@ public final class McbCommands {
     private static int judge(CommandContext<CommandSourceStack> c) {
         Job j = Job.current != null ? Job.current : Job.last;
         if (j == null || j.site == null) return fail(c.getSource(), "[mcb] no build to judge yet");
-        Judge.Result r = Judge.judge(j.target, j.site.snapshot(j.level), j.level);
+        Judge.Result r = Judge.judge(j.target, j.site.snapshot(mcb.mc.Convert.view(j.level)), new mcb.mc.GameSurvival(j.level));
         CommandSourceStack s = c.getSource();
         say(s, "[mcb] " + j.name + ": " + (r.pass ? "PASS" : "FAIL") + " - " + r.failedSections + " of " + r.sections + " sections fail (a section passes at 3 % bad or less); judged cells " + r.targetCells + ", missing " + r.missing + ", wrong " + r.wrong + ", left behind " + r.leftover + ", exempt " + r.exemptCells);
         int shown = 0;

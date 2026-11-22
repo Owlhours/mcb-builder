@@ -4,18 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.ChestBlock;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.ChestType;
-import net.minecraft.world.level.Level;
 
 /**
  * A build site: where the target goes in the world, and where the bot's supplies are. There are two kinds:
@@ -40,7 +28,7 @@ public final class Site {
     public final boolean depot;
     public final Target target;
     public final int ox, oy, oz;
-    public final Item scaffoldItem;
+    public final int scaffoldItem;
     public final int scaffoldState;
     /** One entry per chest slot that holds something (registered containers, before the survey: one placeholder per
      *  container). */
@@ -50,7 +38,7 @@ public final class Site {
     public final List<Long> containerBlocks = new ArrayList<>();
 
     public static final class Stock {
-        public Item item;
+        public int item;
         public int count;
         public final int chestX, chestY, chestZ; // the depot: the west block of the double chest (click either half); else the container block the bot clicks
         public final int slot;                   // slot in the container screen (0..53 in a depot chest)
@@ -58,7 +46,7 @@ public final class Site {
          *  looks at. (A depot chest is opened from the aisle in front of it; see BuildState.standX.) */
         public int ax, ay, az;
         public double px, py, pz;
-        public Stock(Item item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
+        public Stock(int item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
         public void setAccess(Stock o) { ax = o.ax; ay = o.ay; az = o.az; px = o.px; py = o.py; pz = o.pz; }
     }
 
@@ -72,88 +60,93 @@ public final class Site {
         this.oz = oz;
         this.oy = oy;
         // scaffold material: a quick-to-break full cube that the target itself does not use
-        boolean[] used = new boolean[StateInfo.N];
-        for (char c : target.ids) used[c] = true;
-        Block[] candidates = {Blocks.MOSS_BLOCK, Blocks.PALE_MOSS_BLOCK, Blocks.DRIED_KELP_BLOCK, Blocks.HAY_BLOCK, Blocks.DIRT, Blocks.COBBLESTONE};
-        Block chosen = candidates[0];
-        for (Block b : candidates) {
-            boolean inUse = false;
-            for (BlockState s : b.getStateDefinition().getPossibleStates()) if (used[Block.getId(s)]) inUse = true;
-            if (!inUse) { chosen = b; break; }
+        boolean[] used = usedBlocks(target);
+        String chosen = DEPOT_LOOSE[0];
+        for (String b : DEPOT_LOOSE) {
+            if (!used[StateInfo.block[StateInfo.defaultState(b)]]) { chosen = b; break; }
         }
-        this.scaffoldItem = chosen.asItem();
-        this.scaffoldState = Block.getId(chosen.defaultBlockState());
+        this.scaffoldState = StateInfo.defaultState(chosen);
+        this.scaffoldItem = StateInfo.item[scaffoldState];
+    }
+
+    /** The loose-block candidates of a depot (quick to break, full cubes), in order of preference. */
+    public static final String[] DEPOT_LOOSE = {"moss_block", "pale_moss_block", "dried_kelp_block", "hay_block", "dirt", "cobblestone"};
+
+    /** Per block (StateInfo.block): does the target use any of its states? */
+    private static boolean[] usedBlocks(Target target) {
+        int nb = 0;
+        for (int i = 0; i < StateInfo.N; i++) nb = Math.max(nb, StateInfo.block[i] + 1);
+        boolean[] used = new boolean[nb];
+        for (char c : target.ids) used[StateInfo.block[c]] = true;
+        return used;
     }
 
     /** The loose-block candidates for registered containers (quick to break, full cubes), in order of preference. */
-    public static final Block[] LOOSE = {Blocks.MOSS_BLOCK, Blocks.PALE_MOSS_BLOCK, Blocks.DRIED_KELP_BLOCK, Blocks.HAY_BLOCK, Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.NETHERRACK, Blocks.COBBLESTONE};
+    public static final String[] LOOSE = {"moss_block", "pale_moss_block", "dried_kelp_block", "hay_block", "dirt", "coarse_dirt", "netherrack", "cobblestone"};
 
     /**
      * (The client mod) A site with registered containers, whose first air layer is oy.
      * @param have what the owner has (inventory and containers), item -> count; the loose block is the candidate the
      *             target does not use that the owner has most of (moss if none)
      */
-    public Site(Target target, int ox, int oy, int oz, Map<Item, Integer> have) {
+    public Site(Target target, int ox, int oy, int oz, Map<Integer, Integer> have) {
         StateInfo.init();
         this.depot = false;
         this.target = target;
         this.ox = ox; this.oy = oy; this.oz = oz;
-        boolean[] used = new boolean[StateInfo.N];
-        for (char c : target.ids) used[c] = true;
-        Block chosen = null;
+        boolean[] used = usedBlocks(target);
+        String chosen = null;
         int best = -1;
-        for (Block b : LOOSE) {
-            boolean inUse = false;
-            for (BlockState s : b.getStateDefinition().getPossibleStates()) if (used[Block.getId(s)]) inUse = true;
-            if (inUse) continue;
-            int n = have == null ? 0 : have.getOrDefault(b.asItem(), 0);
+        for (String b : LOOSE) {
+            int def = StateInfo.defaultState(b);
+            if (used[StateInfo.block[def]]) continue;
+            int n = have == null ? 0 : have.getOrDefault(StateInfo.item[def], 0);
             if (chosen == null || n > best) { chosen = b; best = n; }
         }
-        if (chosen == null) chosen = Blocks.MOSS_BLOCK;
-        this.scaffoldItem = chosen.asItem();
-        this.scaffoldState = Block.getId(chosen.defaultBlockState());
+        if (chosen == null) chosen = "moss_block";
+        this.scaffoldState = StateInfo.defaultState(chosen);
+        this.scaffoldItem = StateInfo.item[scaffoldState];
     }
 
     /** Item requirements of the target: item -> count. */
-    public Map<Item, Integer> requirements() {
-        Map<Item, Integer> need = new LinkedHashMap<>();
+    public Map<Integer, Integer> requirements() {
+        Map<Integer, Integer> need = new LinkedHashMap<>();
         int[] perState = new int[StateInfo.N];
         for (char c : target.ids) perState[c]++;
         for (int id = 1; id < StateInfo.N; id++) {
             if (perState[id] == 0 || StateInfo.itemCount[id] == 0) continue;
-            Item it = StateInfo.item[id];
-            if (it == Items.AIR) continue;
+            int it = StateInfo.item[id];
+            if (it == ItemInfo.AIR) continue;
             need.merge(it, perState[id] * StateInfo.itemCount[id], Integer::sum);
-            Item extra = StateInfo.contentItem(id);
-            if (extra != null) need.merge(extra, perState[id], Integer::sum);
+            int extra = StateInfo.contentItem[id];
+            if (extra != ItemInfo.NONE) need.merge(extra, perState[id], Integer::sum);
         }
         return need;
     }
 
     /** Requirements for the cells that are not yet right in the world (what still has to be placed). */
-    public Map<Item, Integer> stillNeeded(Level level) {
-        Map<Item, Integer> need = new LinkedHashMap<>();
-        char[] now = snapshot(level);
+    public Map<Integer, Integer> stillNeeded(BlockView world) {
+        Map<Integer, Integer> need = new LinkedHashMap<>();
+        char[] now = snapshot(world);
         for (int i = 0; i < target.ids.length; i++) {
             int t = target.ids[i];
             if (t == 0 || StateInfo.itemCount[t] == 0) continue;
             if (Judge.rightCell(t, now[i])) continue;
-            Item it = StateInfo.item[t];
-            if (it == Items.AIR) continue;
+            int it = StateInfo.item[t];
+            if (it == ItemInfo.AIR) continue;
             need.merge(it, (int) StateInfo.itemCount[t], Integer::sum);
-            Item extra = StateInfo.contentItem(t);
-            if (extra != null) need.merge(extra, 1, Integer::sum);
+            int extra = StateInfo.contentItem[t];
+            if (extra != ItemInfo.NONE) need.merge(extra, 1, Integer::sum);
         }
         return need;
     }
 
-    /** The world's current content of the target box (for judging), as the given level sees it. */
-    public char[] snapshot(Level level) {
+    /** The world's current content of the target box (for judging), as the given view sees it. */
+    public char[] snapshot(BlockView world) {
         char[] out = new char[target.ids.length];
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         int i = 0;
         for (int y = 0; y < target.sy; y++) for (int z = 0; z < target.sz; z++) for (int x = 0; x < target.sx; x++, i++) {
-            out[i] = (char) Block.getId(level.getBlockState(p.set(ox + x, oy + y, oz + z)));
+            out[i] = (char) world.stateAt(ox + x, oy + y, oz + z);
         }
         return out;
     }

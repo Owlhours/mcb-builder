@@ -19,7 +19,7 @@ server_cp
 fabric_cp
 OUT=builder/build/classes
 rm -rf builder/build; mkdir -p "$OUT"
-compile "$OUT" "$SERVER_CP:$FABRIC_CP" core/src adapter/src adapter/builder/src
+compile "$OUT" "$SERVER_CP:$FABRIC_CP" core/src adapter/src adapter/server/src adapter/builder/src
 sed "s/\${version}/$V/; s/\${minecraft}/$MC/" adapter/builder/resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp adapter/builder/resources/mcb-builder.mixins.json "$OUT/"
 cp LICENSE "$OUT/" 2>/dev/null || true

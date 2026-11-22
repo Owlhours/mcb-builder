@@ -6,7 +6,7 @@ import mcb.build.Judge;
 import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.build.Target;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Depot;
 import mcb.env.Env;
 import mcb.schem.Schem;
@@ -34,12 +34,12 @@ public final class BuildRun {
     private static int nextX = 0;
     private static String setupDetail = "";
 
-    private static mcb.env.Oracle oracle;
+    private static mcb.env.ServerOracle oracle;
     public static long wallLimitMs = 0;
 
     /** The rules oracle every run in this process shares (its tables are filled as items come up). */
-    public static mcb.env.Oracle oracle(Env env) {
-        if (oracle == null) oracle = new mcb.env.Oracle(env);
+    public static mcb.env.ServerOracle oracle(Env env) {
+        if (oracle == null) oracle = new mcb.env.ServerOracle(env);
         return oracle;
     }
 
@@ -66,7 +66,7 @@ public final class BuildRun {
         // MCB_SEED=k: the bot starts k blocks further along the front of the build. Nothing else changes, but the
         // whole run takes another course: the way to measure how much of a verdict is the build and how much is chance.
         int seed = System.getenv("MCB_SEED") == null ? 0 : Integer.parseInt(System.getenv("MCB_SEED"));
-        Client client = env.join("Bot" + (ox / 64), ox + 0.5 + Math.floorMod(seed, Math.max(1, Math.min(target.sx, 12))), site.oy, oz - 2 + 0.5);
+        BotClient client = env.join("Bot" + (ox / 64), ox + 0.5 + Math.floorMod(seed, Math.max(1, Math.min(target.sx, 12))), site.oy, oz - 2 + 0.5);
         long td = System.currentTimeMillis();
         setupDetail = "target=" + (ta - t0) + " site=" + (tb - ta) + " chests+pin=" + (tc - tb) + " join=" + (td - tc);
         client.collectPacketStats = verbose;
@@ -97,7 +97,7 @@ public final class BuildRun {
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
         out.navStats += " busy[" + env.busyReport() + "] ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());
         for (int i = 0; i < 5; i++) env.tickServer();
-        out.judge = Judge.judge(target, site.snapshot(env.level), env.level);
+        out.judge = Judge.judge(target, site.snapshot(mcb.mc.Convert.view(env.level)), new mcb.mc.GameSurvival(env.level));
         if (verbose) System.out.println("PACKETS " + client.packetStats + " tracked=" + env.level.getChunkSource().chunkMap.isChunkTracked(client.player, (ox + 4) >> 4, 0));
         if (verbose) {
             // where the bot's picture of the world and the world disagree
@@ -108,7 +108,7 @@ public final class BuildRun {
                 if (y < grid.oy) continue;
                 int w = Block.getId(env.level.getBlockState(p.set(x, y, z)));
                 if (StateInfo.air[w]) w = 0;
-                if (w != grid.cur[i] && !(StateInfo.state[w].getBlock() == Blocks.CHEST)) { diff++; System.out.println("MIRROR MISMATCH at " + (x - ox) + "," + (y - site.oy) + "," + (z - oz) + " world=" + StateInfo.name(w) + " bot=" + StateInfo.name(grid.cur[i])); }
+                if (w != grid.cur[i] && !(StateInfo.block[w] == StateInfo.block[StateInfo.defaultState("chest")])) { diff++; System.out.println("MIRROR MISMATCH at " + (x - ox) + "," + (y - site.oy) + "," + (z - oz) + " world=" + StateInfo.name(w) + " bot=" + StateInfo.name(grid.cur[i])); }
             }
         }
         env.server.getPlayerList().remove(client.player);

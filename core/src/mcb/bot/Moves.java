@@ -1,5 +1,7 @@
 package mcb.bot;
 
+import mcb.build.ItemInfo;
+import mcb.game.Hit;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
@@ -10,17 +12,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
-import mcb.env.Client;
-import mcb.env.Oracle;
-import net.minecraft.world.inventory.ContainerInput;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.SlabType;
-import net.minecraft.world.phys.BlockHitResult;
+import mcb.game.Client;
+import mcb.game.Oracle;
 
 /**
  * Getting about: finding routes and walking them (steps, jumps, drops, doors, scaffolding columns, pillars and
@@ -437,10 +430,10 @@ abstract class Moves extends BuildState {
         return ok;
     }
 
-    java.util.HashMap<Item, int[]> spares;
+    java.util.HashMap<Integer, int[]> spares;
 
     /** How many more blocks of this kind the bot may break (and replace from the reserve in the chests). */
-    int spare(Item it) {
+    int spare(int it) {
         if (spares == null) {
             spares = new java.util.HashMap<>();
             for (int i = 0; i < g.tgt.length; i++) {
@@ -454,7 +447,7 @@ abstract class Moves extends BuildState {
     }
 
     void spent(int state) {
-        if (spares == null) spare(Items.AIR);
+        if (spares == null) spare(ItemInfo.AIR);
         int[] v = spares.get(StateInfo.item[state]);
         if (v != null) v[0]--;
     }
@@ -475,7 +468,7 @@ abstract class Moves extends BuildState {
             if (!g.in(qx, qy, qz) || !bodyIn(qx, qy, qz)) continue;
             int st = g.get(qx, qy, qz);
             if (st == 0 || StateInfo.walkThrough[st] && StateInfo.doorEdges[st] == 0) continue;
-            boolean opens = StateInfo.handDoor[st] || (StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.TrapDoorBlock tb && StateInfo.state[st].getBlock() != net.minecraft.world.level.block.Blocks.IRON_TRAPDOOR);
+            boolean opens = StateInfo.handDoor[st] || StateInfo.handTrapdoor[st];
             if (opens && toggle(qx, qy, qz)) {
                 settle();
                 nav.blockedEdges.clear();
@@ -599,7 +592,7 @@ abstract class Moves extends BuildState {
         if (w == 0) return 0;
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
         // (broken ice leaves water behind, and water runs)
-        if (StateInfo.state[w].getBlock() == net.minecraft.world.level.block.Blocks.ICE) return -1;
+        if (StateInfo.ice[w]) return -1;
         // what is broken is gone (nothing drops): only as many as the chests can make good
         if (!desperate && spare(StateInfo.item[w]) <= 0) return -1;
         // nothing may hang on it or stand on it that would come off with it
@@ -610,10 +603,10 @@ abstract class Moves extends BuildState {
                 // carpet beside a wall lies on the floor, not on the wall. (A bot that has put an iron door into the
                 // one doorway of a carpeted room stood there to the end, with thousands of temporary blocks left
                 // standing outside.)
-                if (!(desperate && pocket) || !(reckless || oracle.survivesWithout(new net.minecraft.core.BlockPos(x + DX[d], y + DY[d], z + DZ[d]), new net.minecraft.core.BlockPos(x, y, z)))) return -1;
+                if (!(desperate && pocket) || !(reckless || oracle.survivesWithout(x + DX[d], y + DY[d], z + DZ[d], x, y, z))) return -1;
             }
         }
-        if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
+        if (z < g.oz - 2 && StateInfo.chest[w]) return -1;
         int t = breakTicks(w);
         // (obsidian takes four minutes by hand: only to get out of somewhere there is no other way out of)
         if (t < 0 || t > (desperate ? 6000 : 1500)) return -1;
@@ -725,7 +718,7 @@ abstract class Moves extends BuildState {
             rope.add(new int[] {Nav.PILLAR, st.x, st.y - 1, st.z, st.x, st.y, st.z, g.idx(st.x, st.y - 1, st.z)});
         }
         if (st.lean >= 0) {
-            if (wantHeld != null && !hold(wantHeld)) return false;   // while there is still a free hand for the inventory
+            if (wantHeld != ItemInfo.NONE && !hold(wantHeld)) return false;   // while there is still a free hand for the inventory
             return lean(st.x, st.y, st.z, st.lean);
         }
         return true;
@@ -1073,7 +1066,7 @@ abstract class Moves extends BuildState {
             int cell = opened[j];
             if (g.tgt[cell] != 0 && matches(g.cur[cell], g.tgt[cell])) continue;
             // (a gate fills its cell: it is closed once the bot has left it, not around the bot)
-            boolean fillsCell = StateInfo.state[g.cur[cell]].getBlock() instanceof net.minecraft.world.level.block.FenceGateBlock;
+            boolean fillsCell = StateInfo.fenceGate[g.cur[cell]];
             if (fillsCell && (bodyIn(g.xOf(cell), g.yOf(cell), g.zOf(cell)) || bodyIn(g.xOf(cell), g.yOf(cell) - 1, g.zOf(cell)))) { pendingClose.add(cell); continue; }
             if (!toggle(g.xOf(cell), g.yOf(cell), g.zOf(cell))) {
                 if (TRACE && verbose) log("gate at " + rel(g.xOf(cell), g.yOf(cell), g.zOf(cell)) + " not closed again: " + StateInfo.name(g.cur[cell]) + " eye=" + String.format("%.2f,%.2f,%.2f", c.eye().x - g.ox, c.eye().y - g.oy, c.eye().z - g.oz));
@@ -1173,17 +1166,17 @@ abstract class Moves extends BuildState {
             if (sneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
             c.look(c.yaw(), pitch);
             tick();                                           // (the item is in the hand from this tick on)
-            BlockHitResult hit = oracle.pick(c, c.yaw(), pitch);
+            Hit hit = oracle.pick(c, c.yaw(), pitch);
             boolean ok = false;
             if (hit != null) {
                 int pred = oracle.predict(towerItem, hit, c.yaw(), pitch, sneak);
-                ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == next && oracle.placedAt.getZ() == z;
+                ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedX == x && oracle.placedY == next && oracle.placedZ == z;
             }
             if (ok) { c.clickUse(); tick(); }
             if (sneak) { c.releaseKeys(); tick(); }
             if (ok && !g.isTower(x, next, z)) tick();
             if (!ok || !g.isTower(x, next, z)) {
-                return fail("tower: no block at " + rel(x, next, z) + " ok=" + ok + " hit=" + (hit == null ? "none" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " " + hit.getDirection() + " inside=" + hit.isInside()) + " feet=" + (f - g.oy) + " here/above/below=" + sHere + "/" + sAbove + "/" + sBelow);
+                return fail("tower: no block at " + rel(x, next, z) + " ok=" + ok + " hit=" + (hit == null ? "none" : rel(hit.x, hit.y, hit.z) + " " + hit.faceName() + " inside=" + hit.inside) + " feet=" + (f - g.oy) + " here/above/below=" + sHere + "/" + sAbove + "/" + sBelow);
             }
             placed++; nTowerBlocks++;
             addScaffold(x, next, z);
@@ -1208,16 +1201,16 @@ abstract class Moves extends BuildState {
         float yaw = yawTo(x - px, z - pz);
         c.look(yaw, 90);
         tick();
-        BlockHitResult hit = oracle.pick(c, c.yaw(), 90);
+        Hit hit = oracle.pick(c, c.yaw(), 90);
         boolean ok = false;
         if (hit != null) {
             int pred = oracle.predict(towerItem, hit, c.yaw(), 90, false);
-            ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == py - 1 && oracle.placedAt.getZ() == z && Grid.scafDistance(pred) < 7;
+            ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedX == x && oracle.placedY == py - 1 && oracle.placedZ == z && Grid.scafDistance(pred) < 7;
         }
         if (ok) { c.clickUse(); tick(); }
         if (ok && !g.isTower(x, py - 1, z)) tick();
         if (!ok || !g.isTower(x, py - 1, z)) {
-            if (verbose) log("walkway piece from " + rel(px, py, pz) + " to " + rel(x, py, z) + ": hit " + (hit == null ? "none" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " " + hit.getDirection()) + " predicted at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + " ok=" + ok + " underfoot " + StateInfo.name(g.get(px, py - 1, pz)) + " there " + StateInfo.name(g.get(x, py - 1, z)) + " pos " + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+            if (verbose) log("walkway piece from " + rel(px, py, pz) + " to " + rel(x, py, z) + ": hit " + (hit == null ? "none" : rel(hit.x, hit.y, hit.z) + " " + hit.faceName()) + " predicted at " + rel(oracle.placedX, oracle.placedY, oracle.placedZ) + " ok=" + ok + " underfoot " + StateInfo.name(g.get(px, py - 1, pz)) + " there " + StateInfo.name(g.get(x, py - 1, z)) + " pos " + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
             return fail("walkway piece: no block");
         }
         placed++; nTowerBlocks++; nWings++;
@@ -1289,7 +1282,7 @@ abstract class Moves extends BuildState {
         }
         c.releaseKeys();
         if (ok) { placed++; addScaffold(x, y, z); nPillarMoves++; }
-        else fail("pillar: no block appeared; y0=" + String.format("%.2f", y0 - g.oy) + " now=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + "/" + c.lastHit().getDirection()) + " above=" + StateInfo.name(g.get(x, y + 2, z)) + "," + StateInfo.name(g.get(x, y + 3, z)));
+        else fail("pillar: no block appeared; y0=" + String.format("%.2f", y0 - g.oy) + " now=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().x, c.lastHit().y, c.lastHit().z) + "/" + c.lastHit().faceName()) + " above=" + StateInfo.name(g.get(x, y + 2, z)) + "," + StateInfo.name(g.get(x, y + 3, z)));
         settle();
         return ok;
     }
