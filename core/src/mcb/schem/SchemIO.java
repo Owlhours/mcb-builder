@@ -2,24 +2,36 @@ package mcb.schem;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
+import mcb.schem.Nbt.CompoundTag;
+import mcb.schem.Nbt.ListTag;
 
-/** Readers for the schematic formats found in the collection. All return a cropped {@link Schem} or throw. */
+/**
+ * Readers for the common schematic formats: Litematica {@code .litematic}, Sponge {@code .schem} (versions 1 to
+ * 3), vanilla structure {@code .nbt} and MCEdit {@code .schematic} (numeric block ids, before 1.13). The format is
+ * recognised from the file's contents, not its name. Every reader returns a {@link Schem} cropped to its non-air
+ * blocks, or throws: an {@link IOException} for a file that is not a schematic, or is damaged, empty or too large.
+ * Some damaged files (for example a palette index that does not fit) end in an unchecked exception instead, so a
+ * caller that must not fail should catch both.
+ *
+ * <p>Block states are turned into numbers by the {@link StateResolver} given to the constructor. One reader may
+ * read many files; they share the resolver (and its cache, if it has one). Not thread-safe.
+ */
 public final class SchemIO {
+    /** Larger boxes (width x height x length, before cropping) are refused. */
     public static final long MAX_VOLUME = 400_000_000L;
-    private final StateResolver resolver = new StateResolver();
+    private final StateResolver resolver;
+
+    public SchemIO(StateResolver resolver) {
+        this.resolver = java.util.Objects.requireNonNull(resolver);
+    }
 
     public Schem read(Path file) throws IOException {
-        CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+        CompoundTag root = Nbt.readCompressed(file);
         String name = file.getFileName().toString().toLowerCase();
         Schem s;
         if (root.contains("Regions")) s = litematic(root);
         else if (root.contains("Schematic") || root.contains("BlockData") || root.contains("Palette") && root.contains("Width")) s = sponge(root);
-        else if (root.contains("Blocks") && root.contains("Width") && root.get("Blocks").getId() == Tag.TAG_BYTE_ARRAY) s = legacy(root);
+        else if (root.contains("Blocks") && root.contains("Width") && root.get("Blocks").id() == Nbt.BYTE_ARRAY) s = legacy(root);
         else if (root.contains("Blocks") && root.contains("Width")) s = sponge(root);
         else if (root.contains("size") && (root.contains("palette") || root.contains("palettes"))) s = structure(root);
         else throw new IOException("unrecognised schematic layout (" + name + "): keys " + root.keySet());
@@ -43,11 +55,12 @@ public final class SchemIO {
         byte[] data;
         if (root.contains("Blocks") && root.get("Blocks") instanceof CompoundTag blocks) { // v3
             palette = blocks.getCompoundOrEmpty("Palette");
-            data = blocks.getByteArray("Data").orElseThrow(() -> new IOException("no block data"));
+            data = blocks.getByteArray("Data");
         } else {
             palette = root.getCompoundOrEmpty("Palette");
-            data = root.getByteArray("BlockData").orElseThrow(() -> new IOException("no block data"));
+            data = root.getByteArray("BlockData");
         }
+        if (data == null) throw new IOException("no block data");
         if (dv <= 0) dv = 1519; // earliest version that wrote this format (1.13)
         int max = 0;
         for (String k : palette.keySet()) max = Math.max(max, palette.getIntOr(k, 0));
@@ -101,7 +114,8 @@ public final class SchemIO {
             ListTag pal = r.getListOrEmpty("BlockStatePalette");
             int[] map = new int[pal.size()];
             for (int i = 0; i < map.length; i++) map[i] = resolver.resolve(pal.getCompoundOrEmpty(i), dv);
-            long[] packed = r.getLongArray("BlockStates").orElseThrow(() -> new IOException("no BlockStates"));
+            long[] packed = r.getLongArray("BlockStates");
+            if (packed == null) throw new IOException("no BlockStates");
             int bits = Math.max(2, 32 - Integer.numberOfLeadingZeros(Math.max(1, map.length - 1)));
             long mask = (1L << bits) - 1;
             long total = (long) rx * ry * rz;
@@ -159,9 +173,11 @@ public final class SchemIO {
     private Schem legacy(CompoundTag root) throws IOException {
         int sx = root.getShortOr("Width", (short) 0) & 0xffff, sy = root.getShortOr("Height", (short) 0) & 0xffff, sz = root.getShortOr("Length", (short) 0) & 0xffff;
         checkDims(sx, sy, sz);
-        byte[] blocks = root.getByteArray("Blocks").orElseThrow(() -> new IOException("no Blocks"));
-        byte[] data = root.getByteArray("Data").orElse(new byte[blocks.length]);
-        byte[] add = root.getByteArray("AddBlocks").orElse(null);
+        byte[] blocks = root.getByteArray("Blocks");
+        if (blocks == null) throw new IOException("no Blocks");
+        byte[] data = root.getByteArray("Data");
+        if (data == null) data = new byte[blocks.length];
+        byte[] add = root.getByteArray("AddBlocks");
         int n = sx * sy * sz;
         if (blocks.length < n || data.length < n) throw new IOException("legacy arrays truncated");
         char[] ids = new char[n];

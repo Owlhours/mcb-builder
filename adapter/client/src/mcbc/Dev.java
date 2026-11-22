@@ -19,7 +19,7 @@ final class Dev {
     /** Writes what a schematic needs (item id, count per line) to &lt;file&gt;.needs. */
     private static void needs(String name) throws IOException {
         Path f = McbcMod.schematicDir().resolve(name);
-        mcb.schem.Schem schem = new mcb.schem.SchemIO().read(f);
+        mcb.schem.Schem schem = mcb.mc.GameStates.reader().read(f);
         mcb.build.StateInfo.init();
         var site = new mcb.build.Site(new mcb.build.Target(schem), 0, 0, 0, null);
         StringBuilder sb = new StringBuilder();

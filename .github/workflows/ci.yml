@@ -22,6 +22,8 @@ jobs:
         with:
           path: .deps
           key: deps-${{ hashFiles('adapter/versions/*.env', 'tools/deps.sh') }}
+      - name: Unit tests (no Minecraft needed)
+        run: tools/test.sh
       - name: Build the singleplayer mod
         run: builder/build.sh
       - name: Build the client mod

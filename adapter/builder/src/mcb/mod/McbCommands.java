@@ -12,8 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import mcb.build.Judge;
+import mcb.mc.GameStates;
 import mcb.schem.Schem;
-import mcb.schem.SchemIO;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -83,7 +83,7 @@ public final class McbCommands {
         Path file = find(server, name);
         if (file == null) return fail(src, "[mcb] no schematic " + name + " in " + Job.schematicDir(server) + " (/mcb list)");
         Schem schem;
-        try { schem = new SchemIO().read(file); }
+        try { schem = GameStates.reader().read(file); }
         catch (IOException | RuntimeException e) { return fail(src, "[mcb] cannot read " + file.getFileName() + ": " + e.getMessage()); }
         ServerLevel level = src.getLevel();
         if (origin == null) origin = ahead(src, schem);

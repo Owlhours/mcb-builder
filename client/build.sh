@@ -17,7 +17,9 @@ client_cp
 fabric_cp
 OUT=client/build/classes
 rm -rf client/build; mkdir -p "$OUT"
-compile "$OUT" "$CLIENT_CP:$FABRIC_CP" core/src adapter/client/src
+# adapter/src/mcb/mc is the Minecraft code both mods share; the rest of adapter/src (mcb.env) is the server-side
+# body, which the client mod replaces with its own (adapter/client/src/mcb/env).
+compile "$OUT" "$CLIENT_CP:$FABRIC_CP" core/src adapter/src/mcb/mc adapter/client/src
 sed "s/\${version}/$V/; s/\${minecraft}/$MC/" adapter/client/resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp adapter/client/resources/mcb-client.mixins.json "$OUT/"
 cp -r adapter/client/resources/assets "$OUT/"

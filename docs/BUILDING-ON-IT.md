@@ -67,7 +67,8 @@ else. The bot builds well, but the code was written for one benchmark, and that 
 - **`mcb.build.Judge`, the self-check.** It compares a world region with a schematic section by section. It's
   useful for any "is it built right?" check, whoever built it.
 - **`mcb.schem`, the readers.** These read `.litematic`, Sponge `.schem` (v1–3), structure `.nbt` and old
-  `.schematic` files into one normal form.
+  `.schematic` files into one normal form. They need nothing but a JDK; see
+  [core/src/mcb/schem/README.md](../core/src/mcb/schem/README.md).
 
 **Entry point.** Both mods wire the planner up the same way:
 `new Builder(client, grid, site, oracle).run()` blocks until the build is done or stopped. `Grid` takes the box,

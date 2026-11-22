@@ -8,8 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 import mcb.env.Env;
 import mcb.gate.Synth;
+import mcb.mc.GameStates;
 import mcb.schem.Schem;
-import mcb.schem.StateResolver;
 
 /**
  * The regression gate's runner: builds the generated test builds ({@link Synth}) in the headless game and prints
@@ -81,18 +81,18 @@ public final class Gate {
 
     /** The build as a normalised schematic of the running game version's state ids. */
     public static Schem schem(Synth.Build b) {
-        StateResolver r = new StateResolver();
+        GameStates r = new GameStates();
         char[] ids = new char[b.cells.length];
         for (int i = 0; i < ids.length; i++) {
             String c = b.cells[i];
             if (c == null) continue;
-            int id = r.resolve(c, StateResolver.CURRENT);
+            int id = r.resolve(c, GameStates.CURRENT);
             if (id < 0) throw new IllegalArgumentException(b.name + ": unknown block state " + c);
             ids[i] = (char) id;
         }
         Schem s = new Schem(b.sx, b.sy, b.sz, ids).cropped();
         s.format = "synth";
-        s.dataVersion = StateResolver.CURRENT;
+        s.dataVersion = GameStates.CURRENT;
         return s;
     }
 

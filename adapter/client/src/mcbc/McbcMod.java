@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import mcb.build.Judge;
+import mcb.mc.GameStates;
 import mcb.schem.Schem;
-import mcb.schem.SchemIO;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -147,7 +147,7 @@ public final class McbcMod implements ClientModInitializer {
         Path file = find(name);
         if (file == null) return fail(c, "no schematic " + name + " in " + schematicDir() + " (/mcbc list)");
         Schem schem;
-        try { schem = new SchemIO().read(file); }
+        try { schem = GameStates.reader().read(file); }
         catch (IOException | RuntimeException e) { return fail(c, "cannot read " + file.getFileName() + ": " + e.getMessage()); }
         return start(c, file.getFileName().toString(), schem, origin, previewOnly);
     }
@@ -165,7 +165,7 @@ public final class McbcMod implements ClientModInitializer {
             Object rot = pl.getClass().getMethod("getRotation").invoke(pl), mir = pl.getClass().getMethod("getMirror").invoke(pl);
             if (!"NONE".equals(String.valueOf(rot)) || !"NONE".equals(String.valueOf(mir))) return fail(c, "the placement is rotated or mirrored (" + rot + ", " + mir + "); only unrotated placements are supported");
             if (file == null || !Files.isRegularFile(file)) return fail(c, "the placement has no schematic file on disk (an in-memory schematic): save it first");
-            Schem schem = new SchemIO().read(file);
+            Schem schem = GameStates.reader().read(file);
             return start(c, file.getFileName().toString(), schem, origin, previewOnly);
         } catch (ReflectiveOperationException | IOException | RuntimeException e) {
             return fail(c, "cannot read the Litematica placement: " + e);
