@@ -6,8 +6,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import mcb.env.Env;
 import mcb.gate.Synth;
+import mcb.mc.GameStates;
 import mcb.schem.Schem;
-import mcb.schem.StateResolver;
 
 /**
  * Builds with the client mod's planner settings ({@link ClientRun}) in the headless game, one row each:
@@ -40,9 +40,9 @@ public final class ClientGate {
     }
 
     static Schem schem(Synth.Build b) {
-        StateResolver r = new StateResolver();
+        GameStates r = new GameStates();
         char[] ids = new char[b.cells.length];
-        for (int i = 0; i < ids.length; i++) if (b.cells[i] != null) ids[i] = (char) r.resolve(b.cells[i], StateResolver.CURRENT);
+        for (int i = 0; i < ids.length; i++) if (b.cells[i] != null) ids[i] = (char) r.resolve(b.cells[i], GameStates.CURRENT);
         Schem s = new Schem(b.sx, b.sy, b.sz, ids).cropped();
         s.format = "synth";
         return s;

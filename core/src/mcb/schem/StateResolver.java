@@ -1,101 +1,37 @@
 package mcb.schem;
 
-import com.mojang.datafixers.DataFixer;
-import com.mojang.serialization.Dynamic;
-import java.util.HashMap;
-import java.util.Map;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.NbtUtils;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.Identifier;
-import net.minecraft.util.datafix.DataFixers;
-import net.minecraft.util.datafix.fixes.BlockStateData;
-import net.minecraft.util.datafix.fixes.References;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
-
 /**
- * Turns block states as written in schematic files (any game version) into 26.2 state ids, using the game's own
- * data fixers for the version upgrade and its own parser for the result. Returns -1 for blocks that do not exist
- * in vanilla 26.2 (mod blocks).
+ * Turns the block states written in a schematic file into the numbers stored in a {@link Schem}.
+ *
+ * <p>Schematic files describe blocks in three ways, one method each. Every method returns a number from 0 to
+ * 65535, where 0 means air, or -1 for a block the resolver does not know; {@link SchemIO} stores unknown blocks as
+ * air and counts them in {@link Schem#unknownCells}.
+ *
+ * <p>Two implementations:
+ * <ul>
+ *   <li>{@link PaletteResolver} (in this package, no dependencies): gives every distinct block state its own
+ *       number, in the order first seen. Use it to read schematics without Minecraft.</li>
+ *   <li>The game's resolver in the Minecraft adapter ({@code mcb.mc.GameStates}): upgrades old states with the
+ *       game's data fixers and returns the game's own global block-state ids. The bot uses that one.</li>
+ * </ul>
+ *
+ * <p>The data version is the game version that wrote the file (Minecraft's "DataVersion" number, e.g. 1343 for
+ * 1.12.2, 4903 for 26.2); a resolver that upgrades old states needs it.
  */
-public final class StateResolver {
-    public static final int CURRENT = 4903;
-    private static DataFixer fixer;
-    private final Map<String, Integer> cache = new HashMap<>();
+public interface StateResolver {
+    /**
+     * A block state as a compound tag, as found in Litematica and structure palettes:
+     * {@code {Name: "minecraft:oak_stairs", Properties: {facing: "north", half: "top"}}}. The whole palette entry
+     * is passed, as it is in the file.
+     */
+    int resolve(Nbt.CompoundTag state, int dataVersion);
 
-    private static DataFixer fixer() {
-        if (fixer == null) fixer = DataFixers.getDataFixer();
-        return fixer;
-    }
+    /** A block state as text, as found in Sponge palettes: {@code "minecraft:oak_stairs[facing=north,half=top]"}. */
+    int resolve(String spec, int dataVersion);
 
-    /** {Name, Properties} compound as found in litematic / structure palettes. */
-    public int resolve(CompoundTag state, int dataVersion) {
-        String key = dataVersion + "|" + state;
-        Integer c = cache.get(key);
-        if (c != null) return c;
-        int id = resolveUncached(state.copy(), dataVersion);
-        cache.put(key, id);
-        return id;
-    }
-
-    /** "minecraft:oak_stairs[facing=north,half=top]" as found in Sponge palettes. */
-    public int resolve(String spec, int dataVersion) {
-        String key = dataVersion + "|" + spec;
-        Integer c = cache.get(key);
-        if (c != null) return c;
-        int id = resolveUncached(parseSpec(spec), dataVersion);
-        cache.put(key, id);
-        return id;
-    }
-
-    /** Pre-1.13 numeric block id + data nibble (MCEdit .schematic). */
-    public int resolveLegacy(int blockId, int data) {
-        String key = "L|" + blockId + ":" + data;
-        Integer c = cache.get(key);
-        if (c != null) return c;
-        Dynamic<?> d = BlockStateData.getTag((blockId << 4) | (data & 15));
-        Tag t = d.convert(NbtOps.INSTANCE).getValue();
-        int id = t instanceof CompoundTag ct ? resolveUncached(ct.copy(), 1451) : -1;
-        if (blockId != 0 && id == 0) id = -1; // the fixer's table answers "air" for ids it does not know
-        cache.put(key, id);
-        return id;
-    }
-
-    static CompoundTag parseSpec(String spec) {
-        CompoundTag t = new CompoundTag();
-        int b = spec.indexOf('[');
-        String name = b < 0 ? spec : spec.substring(0, b);
-        if (name.indexOf(':') < 0) name = "minecraft:" + name;
-        t.putString("Name", name.trim());
-        if (b >= 0) {
-            int e = spec.lastIndexOf(']');
-            if (e < b) e = spec.length();
-            CompoundTag props = new CompoundTag();
-            for (String kv : spec.substring(b + 1, e).split(",")) {
-                int eq = kv.indexOf('=');
-                if (eq > 0) props.putString(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim());
-            }
-            if (!props.isEmpty()) t.put("Properties", props);
-        }
-        return t;
-    }
-
-    private int resolveUncached(CompoundTag tag, int dataVersion) {
-        try {
-            if (dataVersion > 0 && dataVersion < CURRENT) {
-                Dynamic<Tag> upgraded = fixer().update(References.BLOCK_STATE, new Dynamic<>(NbtOps.INSTANCE, tag), dataVersion, CURRENT);
-                if (upgraded.getValue() instanceof CompoundTag ct) tag = ct;
-            }
-            String name = tag.getStringOr("Name", "");
-            Identifier id = Identifier.tryParse(name);
-            if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) return -1;
-            BlockState st = NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag);
-            return Block.getId(st);
-        } catch (RuntimeException e) {
-            return -1;
-        }
-    }
+    /**
+     * A block from before Minecraft 1.13: a numeric block id (1 to 4095; never 0, which is air) and its 4-bit data
+     * value, as found in MCEdit {@code .schematic} files.
+     */
+    int resolveLegacy(int blockId, int data);
 }
