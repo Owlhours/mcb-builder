@@ -8,7 +8,12 @@
 #   fastutil_cp                -> $FASTUTIL_CP: fastutil, the planner's only library (core/ without the game)
 #   junit_cp                   -> $JUNIT_CP: the JUnit console launcher (tests only)
 #
-# The pins for each Minecraft version are in adapter/versions/<version>.env.
+#   version_src side...        -> prints the version's source overlays for these sides (see below)
+#
+# The pins for each Minecraft version are in adapter/versions/<version>.env. Code that differs between versions lives
+# in small source overlays, adapter/versions/<version>/src (code both mods share) and
+# adapter/versions/<version>/<side>/src (side: server, client), each version holding the same class names; the build
+# scripts add the overlays of $MC to their source roots (adapter/versions/README.md).
 # Needs: bash, curl, unzip (or a JDK's jar), sha1sum, python3 (client only).
 
 MC=${MC:-26.2}
@@ -95,6 +100,17 @@ junit_cp() {
     fetch "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/$JUNIT/junit-platform-console-standalone-$JUNIT.jar" \
           "$DEPS/junit-platform-console-standalone-$JUNIT.jar" "$JUNIT_SHA1"
     JUNIT_CP="$DEPS/junit-platform-console-standalone-$JUNIT.jar"
+}
+
+# The source overlays of Minecraft $MC that exist: adapter/versions/$MC/src, then adapter/versions/$MC/<side>/src for
+# each side named (server: the server-side body, used by the singleplayer mod and the headless runs; client: the
+# client mod).
+version_src() {  # side...
+    local d="adapter/versions/$MC"
+    [ -d "$ROOT/$d/src" ] && echo "$d/src"
+    local s
+    for s in "$@"; do [ -d "$ROOT/$d/$s/src" ] && echo "$d/$s/src"; done
+    return 0
 }
 
 # javac over a list of source roots; extra args go to javac

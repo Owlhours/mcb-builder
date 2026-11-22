@@ -17,8 +17,9 @@ client_cp
 fabric_cp
 OUT=client/build/classes
 rm -rf client/build; mkdir -p "$OUT"
-# core (the planner), adapter/src (the Minecraft code both mods share) and the client mod itself
-compile "$OUT" "$CLIENT_CP:$FABRIC_CP" core/src adapter/src adapter/client/src
+# core (the planner), adapter/src (the Minecraft code both mods share), the client mod itself, and the version's
+# source overlays (adapter/versions/<mc>/)
+compile "$OUT" "$CLIENT_CP:$FABRIC_CP" core/src adapter/src adapter/client/src $(version_src client)
 sed "s/\${version}/$V/; s/\${minecraft}/$MC/" adapter/client/resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp adapter/client/resources/mcb-client.mixins.json "$OUT/"
 cp -r adapter/client/resources/assets "$OUT/"

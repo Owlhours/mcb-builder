@@ -13,13 +13,11 @@ import net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
 import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
-import net.minecraft.network.protocol.game.ServerboundAcceptTeleportationPacket;
 import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerLoadedPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
@@ -46,6 +44,9 @@ import net.minecraft.world.phys.Vec3;
  * (ServerGamePacketListenerImpl.handleUseItemOn, handlePlayerAction, handleContainerClick ...), so every server-side
  * check (reach, placement rules, break timing, container validity) applies. What the crosshair points at is found
  * with the same ray cast the client uses (Entity.pick over block outline shapes, block interaction range).
+ *
+ * Where the vanilla client differs between game versions (the arm-swing packets, the teleport confirmation, ...) this
+ * class asks {@link ClientProtocol}, which each version implements in its own overlay (adapter/versions/&lt;mc&gt;).
  */
 public final class BotClient implements mcb.game.Client {
     private final Env env;
@@ -66,6 +67,7 @@ public final class BotClient implements mcb.game.Client {
     private int rightClickDelay, missTime;
     private boolean isDestroying;
     private BlockPos destroyPos = new BlockPos(-1, -1, -1);
+    private Direction destroyFace;        // MultiPlayerGameMode.destroyDirection (only kept where the version has it)
     private ItemStack destroyingItem = ItemStack.EMPTY;
     private float destroyProgress;
     private int destroyDelay;
@@ -136,7 +138,9 @@ public final class BotClient implements mcb.game.Client {
             net.handleChunkBatchReceived(new ServerboundChunkBatchReceivedPacket(25.0f));
         }
         while (!pendingTeleports.isEmpty()) {
-            net.handleAcceptTeleportPacket(new ServerboundAcceptTeleportationPacket(pendingTeleports.poll()));
+            // ClientPacketListener.handleMovePlayer: confirm, and (since 26.3) stop breaking
+            ClientProtocol.acceptTeleport(net, pendingTeleports.poll(), player);
+            if (ClientProtocol.STOP_BREAK_ON_TELEPORT) stopDestroyBlock();
             teleports++;
         }
         if (nChanges < 0) throw new IllegalStateException();
@@ -323,7 +327,7 @@ public final class BotClient implements mcb.game.Client {
         if (hit instanceof BlockHitResult b && b.getType() == HitResult.Type.BLOCK) {
             env.noteAction();
             net.handleUseItemOn(new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND, b, ++sequence));
-            net.handleAnimate(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+            ClientProtocol.useSwing(net);
         }
     }
 
@@ -337,7 +341,7 @@ public final class BotClient implements mcb.game.Client {
         } else {
             missTime = 10;
         }
-        net.handleAnimate(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+        ClientProtocol.attackSwing(net);
         return instant;
     }
 
@@ -347,7 +351,7 @@ public final class BotClient implements mcb.game.Client {
         if (missTime > 0 || player.isUsingItem()) return;
         if (down && hit instanceof BlockHitResult b && b.getType() == HitResult.Type.BLOCK) {
             if (!env.level.getBlockState(b.getBlockPos()).isAir()) {
-                if (continueDestroyBlock(b.getBlockPos(), b.getDirection())) net.handleAnimate(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+                if (continueDestroyBlock(b.getBlockPos(), b.getDirection())) ClientProtocol.attackSwing(net);
             }
             return;
         }
@@ -371,6 +375,7 @@ public final class BotClient implements mcb.game.Client {
                 destroyPos = pos.immutable();
                 destroyingItem = player.getMainHandItem().copy();
                 destroyProgress = 0.0f;
+                if (ClientProtocol.REPORTS_BREAK_FACE) destroyFace = face;
             }
             // the server destroys the block itself when it computes the same instant-break condition
             net.handlePlayerAction(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, pos, face, ++sequence));
@@ -402,8 +407,14 @@ public final class BotClient implements mcb.game.Client {
                 env.noteAction();
                 isDestroying = false;
                 net.handlePlayerAction(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, pos, face, ++sequence));
+                if (ClientProtocol.REPORTS_BREAK_FACE) destroyFace = null;
                 destroyProgress = 0.0f;
                 destroyDelay = 5;
+            } else if (ClientProtocol.REPORTS_BREAK_FACE) {
+                if (destroyFace != face) {
+                    destroyFace = face;
+                    ClientProtocol.breakFaceChanged(net, pos, face);
+                }
             }
             return true;
         }

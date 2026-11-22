@@ -57,7 +57,7 @@ public final class McbcMod implements ClientModInitializer {
         } catch (IOException e) { LOG.warn("[mcbc] event log", e); }
         LocalClient.sentRotation = p -> { var a = (mcbc.mixin.LocalPlayerAccessor) p; return new float[] {a.mcbc$yRotLast(), a.mcbc$xRotLast()}; };
         LocalClient.pendingPredictions = level -> ((mcbc.mixin.PredictionAccessor) ((mcbc.mixin.ClientLevelAccessor) level).mcbc$predictions()).mcbc$states().size();
-        pauseKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.mcb-client.pause", org.lwjgl.glfw.GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
+        pauseKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.mcb-client.pause", com.mojang.blaze3d.platform.InputConstants.KEY_K, KeyMapping.Category.MISC));
         ClientCommandRegistrationCallback.EVENT.register((d, ctx) -> register(d));
         LOG.info("[mcbc] MCB Builder (client) loaded");
     }

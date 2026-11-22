@@ -40,8 +40,8 @@ import net.minecraft.world.level.block.state.BlockState;
  * not thread-safe.
  */
 public final class GameStates implements StateResolver {
-    /** The data version of the game this adapter is for (26.2). */
-    public static final int CURRENT = 4903;
+    /** The data version of the game this adapter is compiled against (26.2: 4903, 26.3: 5023): a compile-time constant. */
+    public static final int CURRENT = net.minecraft.SharedConstants.WORLD_VERSION;
     private static DataFixer fixer;
     private final Map<String, Integer> cache = new HashMap<>();
 
@@ -121,7 +121,8 @@ public final class GameStates implements StateResolver {
                 Dynamic<Tag> upgraded = fixer().update(References.BLOCK_STATE, new Dynamic<>(NbtOps.INSTANCE, tag), dataVersion, CURRENT);
                 if (upgraded.getValue() instanceof CompoundTag ct) tag = ct;
             }
-            String name = tag.getStringOr("Name", "");
+            if (!StateTags.LEGACY_KEYS) tag = withCurrentKeys(tag);
+            String name = tag.getStringOr(StateTags.NAME, "");
             Identifier id = Identifier.tryParse(name);
             if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) return -1;
             BlockState st = NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag);
@@ -129,6 +130,20 @@ public final class GameStates implements StateResolver {
         } catch (RuntimeException e) {
             return -1;
         }
+    }
+
+    /**
+     * A block state with the keys schematics use ("Name", "Properties": the specs above, and palettes of files at this
+     * game's data version, which the data fixer leaves as they are) given this game's keys instead, where they differ
+     * ({@link StateTags}; since 26.3).
+     */
+    private static CompoundTag withCurrentKeys(CompoundTag tag) {
+        if (!tag.contains("Name") || tag.contains(StateTags.NAME)) return tag;
+        CompoundTag t = tag.copy();
+        t.put(StateTags.NAME, t.get("Name"));
+        t.remove("Name");
+        if (t.contains("Properties")) { t.put(StateTags.PROPERTIES, t.get("Properties")); t.remove("Properties"); }
+        return t;
     }
 
     /**

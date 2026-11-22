@@ -9,7 +9,7 @@ import net.minecraft.server.ServerTickRateManager;
 import net.minecraft.util.Util;
 
 /**
- * One tick of a running server, the way its own loop runs one ({@code MinecraftServer.runServer}, 26.2): the tick
+ * One tick of a running server, the way its own loop runs one ({@code MinecraftServer.runServer}, 26.2 = 26.3): the tick
  * rate and {@code /tick sprint} decide when it is due, then the queued packets are handled and the server ticks
  * ({@code processPacketsAndTick}), then the server waits for the next tick's time while it runs its tasks
  * ({@code waitUntilNextTick}: chunk loading, and everything else the loop does between ticks).
@@ -39,7 +39,7 @@ final class LiveLoop {
             overloadedThreshold = (long) l.findStaticVarHandle(MinecraftServer.class, "OVERLOADED_THRESHOLD_NANOS", long.class).get();
             overloadedWarningInterval = (long) l.findStaticVarHandle(MinecraftServer.class, "OVERLOADED_WARNING_INTERVAL_NANOS", long.class).get();
         } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("this Minecraft is not the 26.2 the mod was made for", e);
+            throw new IllegalStateException("this Minecraft is not the version the mod was built for", e);
         }
     }
 

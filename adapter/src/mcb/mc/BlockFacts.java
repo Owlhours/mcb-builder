@@ -12,7 +12,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.EmptyBlockGetter;
-import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BrushableBlock;
@@ -161,7 +160,8 @@ public final class BlockFacts {
             StateInfo.climbable[i] = s.is(BlockTags.CLIMBABLE);
             StateInfo.interactive[i] = isInteractive(b.getClass(), interactiveClasses, plainClasses);
             StateInfo.secondary[i] = (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER)
-                || (b instanceof BedBlock && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
+                // (any bed's head, by its property: 26.3 has beds that are not a BedBlock, such as the straw bed)
+                || (s.hasProperty(BlockStateProperties.BED_PART) && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
             // (doors and gates that open by hand are no obstacle to the builder; the rest could shut it in or out)
             // (and TNT: it is payload, not footing, and anything live next to it sets it off)
             StateInfo.late[i] = (b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand()) || b instanceof net.minecraft.world.level.block.TntBlock;

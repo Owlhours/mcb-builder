@@ -18,8 +18,8 @@ import net.minecraft.world.phys.Vec3;
 /**
  * The bot's body: an ordinary server-side player entity whose movement is simulated by the unmodified vanilla
  * physics ({@code LivingEntity.aiStep/travel/move}), driven by key states exactly the way the vanilla client's
- * {@code LocalPlayer} + {@code KeyboardInput} drive it. The overrides below are transcriptions of the 26.2 client
- * logic (LocalPlayer.aiStep prefix, applyInput, modifyInput, sprint/crouch state machine); nothing here adds an
+ * {@code LocalPlayer} + {@code KeyboardInput} drive it. The overrides below transcribe the client logic (26.2; 26.3 is the same here)
+ * (LocalPlayer.aiStep prefix, applyInput, modifyInput, sprint/crouch state machine); nothing here adds an
  * ability the client does not have.
  */
 public final class BotPlayer extends ServerPlayer {
@@ -82,7 +82,7 @@ public final class BotPlayer extends ServerPlayer {
             connection.handlePlayerInput(new ServerboundPlayerInputPacket(keyPresses));
             lastSentInput = keyPresses;
         }
-        if (!noPhysics) {
+        if (!noPhysics) {   // (26.3 adds "&& !isPassenger()"; this body never rides anything, so it is the same)
             double w = getBbWidth() * 0.35;
             moveTowardsClosestSpace(getX() - w, getZ() + w);
             moveTowardsClosestSpace(getX() - w, getZ() - w);

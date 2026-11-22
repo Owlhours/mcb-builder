@@ -6,8 +6,8 @@
 # Mojang (a bundler: its inner server jar and libraries are unpacked) and Fabric Loader and Sponge Mixin from
 # maven.fabricmc.net, and checks each against the SHA-1 pinned in adapter/versions/<mc>.env.
 #
-# The jar holds the shared planner (core/), the Minecraft adapter (adapter/src) and the mod's own glue
-# (adapter/builder/src).
+# The jar holds the shared planner (core/), the Minecraft adapter (adapter/src, adapter/server/src and the version's
+# overlays under adapter/versions/<mc>/) and the mod's own glue (adapter/builder/src).
 #
 # Needs: bash, curl, unzip, sha1sum, and a JDK 25 (javac, jar).
 # Usage: builder/build.sh [version]          (default 1.0.0; MC=<version> picks the Minecraft version, default 26.2)
@@ -19,7 +19,7 @@ server_cp
 fabric_cp
 OUT=builder/build/classes
 rm -rf builder/build; mkdir -p "$OUT"
-compile "$OUT" "$SERVER_CP:$FABRIC_CP" core/src adapter/src adapter/server/src adapter/builder/src
+compile "$OUT" "$SERVER_CP:$FABRIC_CP" core/src adapter/src adapter/server/src adapter/builder/src $(version_src server)
 sed "s/\${version}/$V/; s/\${minecraft}/$MC/" adapter/builder/resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp adapter/builder/resources/mcb-builder.mixins.json "$OUT/"
 cp LICENSE "$OUT/" 2>/dev/null || true

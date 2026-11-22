@@ -7,6 +7,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # one job per supported Minecraft version (pins: adapter/versions/<mc>.env, overlays: adapter/versions/<mc>/)
+        mc: ['26.2', '26.3']
+    env:
+      MC: ${{ matrix.mc }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,7 +30,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ hashFiles('adapter/versions/*.env', 'tools/deps.sh') }}
+          key: deps-${{ matrix.mc }}-${{ hashFiles(format('adapter/versions/{0}.env', matrix.mc), 'tools/deps.sh') }}
       - name: Unit tests (no Minecraft needed)
         run: tools/test.sh
       - name: Build the singleplayer mod
@@ -33,6 +40,8 @@ jobs:
       - name: Regression gate (the generated test builds, in the headless game)
         run: gate/gate.sh
       - name: Client mod's planner check (the old client planner and the shared one, side by side)
+        # (26.2 only: the old client planner it compares with was written for 26.2 and does not compile against 26.3)
+        if: matrix.mc == '26.2'
         run: tools/client-check.sh
       - name: Checksums
         run: |
@@ -41,5 +50,5 @@ jobs:
           (cd dist && sha256sum *.jar | tee SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
-          name: mcb-jars
+          name: mcb-jars-${{ matrix.mc }}
           path: dist/
