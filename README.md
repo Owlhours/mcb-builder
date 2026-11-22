@@ -35,6 +35,7 @@ Each folder has its own `build.sh`, which downloads its compile dependencies fro
 | [docs/METHOD.md](docs/METHOD.md) | how the planner works, the judge, the world rules, and how every number was measured |
 | [docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) | **read before reusing it:** how it was written, its technical debts and assumptions, the seams for your own project (companion bots, autonomous bots, server scripting, NPCs) |
 | [docs/HISTORY.md](docs/HISTORY.md) | the timeline, how to read the git log, and a glossary of the named revisions and their `MCB_NO_*` switches |
+| [prompts.md](prompts.md) | what the owner asked for, in their own words, from the start of the clean-room attempt to release (shared with mcb-sim) |
 
 The code was written by Claude agents in an automated loop against a fixed benchmark, with a person setting the
 goals and making the calls. The commit history is the real development history.
