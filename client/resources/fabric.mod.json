@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "MCB Builder (client)",
   "description": "Builds a schematic with your own player, the way a patient survival player would: it walks, climbs and places within reach, takes blocks from your supply containers, and stops when anything is wrong. /mcbc build <schematic>.",
-  "license": "All rights reserved",
+  "license": "MIT",
   "environment": "client",
   "entrypoints": { "client": ["mcbc.McbcMod"] },
   "mixins": ["mcb-client.mixins.json"],
