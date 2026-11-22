@@ -43,7 +43,8 @@ CP="$CP:$DEPS/fabric-loader-0.19.5.jar:$DEPS/sponge-mixin-0.17.4+mixin.0.8.7.jar
 
 OUT=build/classes
 rm -rf build; mkdir -p "$OUT"
-find src -name '*.java' > build/sources.txt
+# the shared planner (core/), the Minecraft adapter (adapter/, without the headless runner) and the mod's own glue (src/)
+find ../core/src ../adapter/src src -name '*.java' | grep -v '/mcb/headless/' | sort > build/sources.txt
 javac -nowarn -Xlint:-options -proc:none -encoding UTF-8 -cp "$CP" -d "$OUT" @build/sources.txt
 sed "s/\${version}/$V/" resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp resources/mcb-builder.mixins.json "$OUT/"
