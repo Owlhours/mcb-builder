@@ -8,5 +8,5 @@
   "environment": "*",
   "entrypoints": { "main": ["mcb.mod.McbMod"] },
   "mixins": ["mcb-builder.mixins.json"],
-  "depends": { "fabricloader": ">=0.19.5", "minecraft": "26.2", "java": ">=25" }
+  "depends": { "fabricloader": ">=0.19.5", "minecraft": "${minecraft}", "java": ">=25" }
 }

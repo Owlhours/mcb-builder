@@ -20,14 +20,14 @@ jobs:
       - name: Cache downloaded compile dependencies
         uses: actions/cache@v4
         with:
-          path: |
-            builder/.deps
-            client/.deps
-          key: deps-${{ hashFiles('builder/build.sh', 'client/build.sh') }}
+          path: .deps
+          key: deps-${{ hashFiles('adapter/versions/*.env', 'tools/deps.sh') }}
       - name: Build the singleplayer mod
         run: builder/build.sh
       - name: Build the client mod
         run: client/build.sh
+      - name: Regression gate (the generated test builds, in the headless game)
+        run: gate/gate.sh
       - name: Checksums
         run: |
           mkdir -p dist

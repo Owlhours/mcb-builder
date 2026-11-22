@@ -8,5 +8,5 @@
   "environment": "client",
   "entrypoints": { "client": ["mcbc.McbcMod"] },
   "mixins": ["mcb-client.mixins.json"],
-  "depends": { "fabricloader": ">=0.19.5", "minecraft": "26.2", "java": ">=25", "fabric-command-api-v2": "*", "fabric-key-mapping-api-v1": "*" }
+  "depends": { "fabricloader": ">=0.19.5", "minecraft": "${minecraft}", "java": ">=25", "fabric-command-api-v2": "*", "fabric-key-mapping-api-v1": "*" }
 }
