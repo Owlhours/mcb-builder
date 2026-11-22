@@ -28,7 +28,7 @@ import net.minecraft.world.phys.BlockHitResult;
  * nothing to click on.
  */
 abstract class Placing extends Moves {
-    Placing(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    Placing(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
     /** Does clicking the given face of a neighbour ever give the wanted state? */
     boolean faceWorks(Spec sp, int face) {

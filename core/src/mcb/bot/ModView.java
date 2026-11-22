@@ -10,4 +10,5 @@ public final class ModView {
     }
 
     public static int scaffold(Builder b) { return b.scaffold.size(); }
+    public static String activity(Builder b) { return b.activity; }
 }

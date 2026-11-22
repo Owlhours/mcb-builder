@@ -17,7 +17,7 @@ client_cp
 fabric_cp
 OUT=client/build/classes
 rm -rf client/build; mkdir -p "$OUT"
-compile "$OUT" "$CLIENT_CP:$FABRIC_CP" client/src adapter/client/src
+compile "$OUT" "$CLIENT_CP:$FABRIC_CP" core/src adapter/client/src
 sed "s/\${version}/$V/; s/\${minecraft}/$MC/" adapter/client/resources/fabric.mod.json > "$OUT/fabric.mod.json"
 cp adapter/client/resources/mcb-client.mixins.json "$OUT/"
 cp -r adapter/client/resources/assets "$OUT/"

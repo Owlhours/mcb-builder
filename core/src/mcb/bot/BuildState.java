@@ -50,13 +50,19 @@ abstract class BuildState extends Body {
     public final TreeMap<String, Integer> skipReasons = new TreeMap<>();
     public String status = "";
 
-    BuildState(Client c, Grid g, Site site, Oracle oracle) {
-        super(c, g);
+    /** True when the supplies are the site's own depot of double chests (the headless runs, the singleplayer mod);
+     *  false when they are containers someone registered (the client mod), read by {@code Supplies.survey}. */
+    final boolean depot;
+
+    BuildState(Client c, Grid g, Site site, Oracle oracle, Rules rules) {
+        super(c, g, rules);
         this.oracle = oracle;
+        this.depot = site.depot;
         this.stock = site.stock;
         this.scaffoldItem = site.scaffoldItem;
         this.scaffoldState = site.scaffoldState;
         this.nav = new Nav(g, scaffold);
+        this.nav.maxFall16 = rules.maxFall16;
         this.nav.towerRule = this::towerOk;
         // WALK_WAY (Rust `wing_on`, nav.rs): the search's scaffold rule is tested in Nav; the rest in the Rust order, with
         // behindPace() last (it latches). (Rust's `!probe`, `!no_wings` and ckpt::armed have no Java counterpart:
@@ -69,11 +75,68 @@ abstract class BuildState extends Body {
         for (int y = g.oy; y < g.oy + g.sy; y++) for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) {
             if (g.tgt[g.idx(x, y, z)] != 0) columnTop[col(x, z)] = (short) y;
         }
-        int chest = Block.getId(net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
-        for (Site.Stock s : stock) {
-            g.set(s.chestX, s.chestY, s.chestZ, chest);
-            g.set(s.chestX + 1, s.chestY, s.chestZ, chest);
+        if (depot) {
+            int chest = Block.getId(net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
+            for (Site.Stock s : stock) {
+                g.set(s.chestX, s.chestY, s.chestZ, chest);
+                g.set(s.chestX + 1, s.chestY, s.chestZ, chest);
+            }
+        } else {
+            // registered containers are real blocks the grid already holds; only remember where they are
+            for (long p : site.containerBlocks) supplyBlocks.add(p);
         }
+    }
+
+    // Where the bot stands to open a supply container, and the point on it that it looks at. The depot's chests are
+    // reached from the aisle in front of them, on the ground; registered containers carry their own (Site.Stock).
+    int standX(Site.Stock s) { return depot ? s.chestX : s.ax; }
+    int standY(Site.Stock s) { return depot ? g.oy : s.ay; }
+    int standZ(Site.Stock s) { return depot ? s.chestZ + 1 : s.az; }
+    double lookX(Site.Stock s) { return depot ? s.chestX + 0.5 : s.px; }
+    double lookY(Site.Stock s) { return depot ? s.chestY + 0.45 : s.py; }
+    double lookZ(Site.Stock s) { return depot ? s.chestZ + 0.7 : s.pz; }
+
+    /** ({@link Rules#fallDamage}) Would breaking (x,y,z) - with a scaffolding column, everything of it above too -
+     *  take away all that carries the bot, over a drop that hurts? */
+    @Override protected boolean dangerousBreak(int x, int y, int z) {
+        if (!rules.fallDamage) return false;
+        if (!c.onGround()) return false;
+        int fx = cx(), fy = cy(), fz = cz();
+        boolean tower = StateInfo.scaffolding[g.get(x, y, z)];
+        int top = y;
+        if (tower) while (top < fy + 2 && g.isTower(x, top + 1, z)) top++;
+        final int topF = top;
+        java.util.function.IntPredicate goneAt = yy -> yy == y || (tower && yy > y && yy <= topF);
+        double px = c.x(), pz = c.z();
+        boolean touched = false, kept = false;
+        for (int bx = (int) Math.floor(px - 0.3); bx <= (int) Math.floor(px + 0.3); bx++)
+            for (int bz = (int) Math.floor(pz - 0.3); bz <= (int) Math.floor(pz + 0.3); bz++)
+                for (int yy = fy - 1; yy <= fy; yy++) {
+                    int s = g.get(bx, yy, bz);
+                    if (s == 0 || (StateInfo.walkThrough[s] && !StateInfo.scaffolding[s])) continue;
+                    if (yy == fy && StateInfo.colTop[s] <= 0) continue;
+                    if (bx == x && bz == z && goneAt.test(yy)) touched = true; else kept = true;
+                }
+        if (!touched || kept) return false;
+        int ty = fy - 1;
+        while (ty > fy - 40) {
+            int s = g.get(fx, ty, fz);
+            boolean gone = fx == x && fz == z && goneAt.test(ty);
+            if (!gone && s != 0 && StateInfo.rung[s] != 0) return false;   // (caught on the way by a ladder)
+            // (scaffolding is no catch: a player falling onto it from above lands on its top and takes the damage)
+            if (!gone && s != 0 && (!StateInfo.walkThrough[s] || StateInfo.scaffolding[s])) break;
+            ty--;
+        }
+        return (fy - (ty + 1)) * 16 > nav.maxFall16;
+    }
+
+    /** ({@link Rules#ownBlocksOnly}) Inside the build box (never a supply container), or one of the bot's own
+     *  temporary blocks. */
+    @Override protected boolean mayBreak(int x, int y, int z) {
+        if (!rules.ownBlocksOnly) return true;
+        if (isSupplyChest(x, y, z)) return false;
+        if (g.inBox(x, y, z)) return true;
+        return g.in(x, y, z) && scaffold.contains(g.idx(x, y, z));
     }
 
     int col(int x, int z) { return (z - g.z0) * g.nx + (x - g.x0); }
@@ -265,7 +328,13 @@ abstract class BuildState extends Body {
         return StateInfo.state[StateInfo.canon[a]].getBlock() == StateInfo.state[StateInfo.canon[b]].getBlock();
     }
 
-    boolean isSupplyChest(int x, int y, int z) { return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock; }
+    /** A block of a supply container: in the depot, a chest north of the build; otherwise any block of a registered
+     *  container (both halves of a double chest). */
+    boolean isSupplyChest(int x, int y, int z) {
+        if (!depot) return supplyBlocks.contains(net.minecraft.core.BlockPos.asLong(x, y, z));
+        return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
+    }
+    final it.unimi.dsi.fastutil.longs.LongOpenHashSet supplyBlocks = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
 
     /** Blocks that turn into one another by themselves and need not be told apart here. */
     /** Is the world block the bamboo shoot that stands in for a piece of bamboo in the target? */

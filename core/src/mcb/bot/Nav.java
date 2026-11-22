@@ -28,6 +28,11 @@ public final class Nav {
     public static final int C_MINE = 400;
     /** Cost per scaffold block broken to walk through where it stood. */
     public static final int C_CLEAR = 12;
+    /** No limit on planned drops: the headless runs and the singleplayer mod, where fall damage is off. */
+    public static final int NO_FALL_LIMIT = 1 << 20;
+    /** The furthest planned drop in sixteenths of a block. With fall damage on (the client mod) a drop that does no
+     *  harm: damage is floor(fall distance - 3), so the client keeps it a little under 4 blocks (56) for jitter. */
+    public int maxFall16 = NO_FALL_LIMIT;
     public static final int C_WALK = 5, C_JUMP = 9, C_DROP = 6, C_PILLAR = 12, C_BRIDGE = 22, C_DIG = 2;
     /** Scaffolding columns: rising inside one, sinking through one, and adding a block to one (then rising). They stay up. */
     public static final int C_CLIMB = 9, C_DESCEND = 7, C_TOWER = 13;
@@ -380,7 +385,8 @@ public final class Nav {
             if (h < 0 && g.hang(x, y, z)) { ladderMoves(i, x, y, z, c); continue; }
             if (h < 0) {
                 for (int ty = y - 1; ty >= g.y0; ty--) {
-                    if (g.stand16(x, ty, z) >= 0) { relax(i, x, ty, z, c + C_DROP, DROP); break; }
+                    if ((y - ty) * 16 > maxFall16 + 16) break;
+                    if (g.stand16(x, ty, z) >= 0) { if ((y - ty) * 16 - g.stand16(x, ty, z) <= maxFall16) relax(i, x, ty, z, c + C_DROP, DROP); break; }
                     if (!g.passable(x, ty, z)) break;
                 }
                 continue;
@@ -434,6 +440,7 @@ public final class Nav {
                         int hd = g.stand16(nx, ty, nz);
                         if (hd >= 0) {
                             int fall = (y - ty) * 16 + h - hd;
+                            if (fall > maxFall16) break;
                             // going down onto a slab-like floor can be a one-way trip (no pillaring up from it)
                             relax(i, nx, ty, nz, c + (fall <= 9 ? C_WALK : C_DROP + (y - ty) / 2 + leave + (hd != 0 ? C_PIT : 0)), fall <= 9 ? WALK : DROP);
                             stepDown = fall <= 10;
@@ -474,7 +481,7 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (Grid.colTopS(below) >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) >= 16) { if ((y - ty - 1) * 16 + h <= maxFall16) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
                         if (Grid.colTopS(below) != 0) break;
                     }
                 }
@@ -485,7 +492,7 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (Grid.colTopS(below) >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) >= 16) { if ((y - ty - 1) * 16 + h <= maxFall16) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
                         if (Grid.colTopS(below) != 0) break;
                     }
                 }
@@ -496,7 +503,7 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 1; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (Grid.colTopS(below) >= 16) { if (ty + 1 < y) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) >= 16) { if (ty + 1 < y && (y - ty - 1) * 16 + h <= maxFall16) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
                         if (Grid.colTopS(below) != 0) break;
                     }
                 }
@@ -563,7 +570,7 @@ public final class Nav {
         }
         if (g.rung(x, y - 1, z) != 3 && g.hang(x, y - 1, z)) { relax(i, x, y - 1, z, c + C_DESCEND, LADDER); return; }
         for (int ty = y - 1; ty >= g.y0; ty--) {
-            if (g.stand16(x, ty, z) >= 0) { relax(i, x, ty, z, c + C_DROP + (y - ty) / 2, LADDER); break; }
+            if (g.stand16(x, ty, z) >= 0) { if ((y - ty) * 16 - g.stand16(x, ty, z) <= maxFall16) relax(i, x, ty, z, c + C_DROP + (y - ty) / 2, LADDER); break; }
             if (g.rung(x, ty, z) != 3 && g.hang(x, ty, z)) { relax(i, x, ty, z, c + C_DESCEND * (y - ty), LADDER); break; }
             if (!g.passable(x, ty, z)) break;
         }

@@ -27,7 +27,7 @@ import net.minecraft.world.phys.BlockHitResult;
  * foot), rescuing columns that are about to be closed in, and the clean-up at the end.
  */
 abstract class Scaffolds extends Stances {
-    Scaffolds(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    Scaffolds(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
     /**
      * Before a block goes in: scaffolding columns near it that would be left in a closed-off pocket (the last
@@ -40,7 +40,7 @@ abstract class Scaffolds extends Stances {
         char old = g.cur[i];
         g.cur[i] = (char) t;
         Site.Stock first = stock.get(0);
-        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int ax = standX(first), ay = standY(first), az = standZ(first);
         Nav.MineRule keep = nav.mine;
         nav.mine = null;
         towersOff = true;

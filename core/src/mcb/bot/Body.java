@@ -25,9 +25,15 @@ public class Body {
 
     public static final class OutOfTime extends RuntimeException { }
 
-    public Body(Client c, Grid g) {
+    /** What the world is like (fall damage, whose blocks are around, whether the world is re-read): see {@link Rules}. */
+    public final Rules rules;
+
+    public Body(Client c, Grid g) { this(c, g, Rules.headless()); }
+
+    public Body(Client c, Grid g, Rules rules) {
         this.c = c;
         this.g = g;
+        this.rules = rules;
         Ray.init();
     }
 
@@ -49,7 +55,30 @@ public class Body {
     public boolean died;
     private float lastHealth = -1;
 
+    /** ({@link Rules#readWorld}) Chunks that arrived: their cells are read again; and now and then the cells around the
+     *  bot are compared with the client's world (a change the bot was not told of is taken over). */
+    long reconciled;
+    protected void refreshFromWorld() {
+        for (long cp : c.takeLoadedChunks()) {
+            int ccx = net.minecraft.world.level.ChunkPos.getX(cp) << 4, ccz = net.minecraft.world.level.ChunkPos.getZ(cp) << 4;
+            readCells(Math.max(g.x0, ccx), Math.min(g.x0 + g.nx - 1, ccx + 15), g.y0, g.y0 + g.ny - 1, Math.max(g.z0, ccz), Math.min(g.z0 + g.nz - 1, ccz + 15));
+        }
+        if ((ticks & 127) == 0) readCells(Math.max(g.x0, cx() - 6), Math.min(g.x0 + g.nx - 1, cx() + 6), Math.max(g.y0, cy() - 4), Math.min(g.y0 + g.ny - 1, cy() + 6), Math.max(g.z0, cz() - 6), Math.min(g.z0 + g.nz - 1, cz() + 6));
+    }
+    private void readCells(int x0, int x1, int y0, int y1, int z0, int z1) {
+        if (x0 > x1 || z0 > z1 || y0 > y1) return;
+        var level = c.level();
+        if (!mcb.env.Client.loaded(level, x0, z0) || !mcb.env.Client.loaded(level, x1, z1) || !mcb.env.Client.loaded(level, x0, z1) || !mcb.env.Client.loaded(level, x1, z0)) return;
+        net.minecraft.core.BlockPos.MutableBlockPos p = new net.minecraft.core.BlockPos.MutableBlockPos();
+        for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            int id = net.minecraft.world.level.block.Block.getId(level.getBlockState(p.set(x, y, z)));
+            int have = g.cur[g.idx(x, y, z)];
+            if (have != (StateInfo.air[id] ? 0 : id)) { reconciled++; onBlockChange(x, y, z, id); }
+        }
+    }
+
     protected void sync() {
+        if (rules.readWorld) refreshFromWorld();
         int n = c.changeCount();
         if (n == 0) return;
         int[] ch = c.changes();
@@ -98,6 +127,7 @@ public class Body {
     }
 
     private boolean follow0(int[] path, int from, int n) {
+        c.note("follow");
         int i = from;
         failedStep = -1;
         int stuck = 0;
@@ -186,15 +216,21 @@ public class Body {
         return Math.abs(x + 0.5 - c.x()) < 0.2 && Math.abs(z + 0.5 - c.z()) < 0.2;
     }
 
-    /** Inside a scaffolding column at (x,z): rise (jump held) until the feet are at level toY, on top of the block below it. */
+    /** Inside a scaffolding column at (x,z): rise (jump held) until the feet are at level toY, on top of the block below it.
+     *  ({@link Rules#timedClimb}) The jump is let go at a tick chosen so that the hop out of the top does not end a hair above the top
+     *  of the column: a player that comes to rest there one tick before it lands (airborne, within a thousandth of a
+     *  block of the surface) is set back by the server. The vanilla climbing physics are simulated for that (CLIMB_SIM). */
     public boolean climb(int x, int toY, int z) {
+        c.note("climb>" + toY);
         c.holdAttack(false);
         int budget = 30 + 12 * Math.max(0, toY - cy());
         for (int n = 0; n < budget && c.y() < toY; n++) {
             double dx = x + 0.5 - c.x(), dz = z + 0.5 - c.z();
             boolean drift = dx * dx + dz * dz > 0.01;
             if (drift) c.look(yawTo(dx, dz), c.pitch());
-            c.keys(drift, false, false, false, true, false, false);
+            boolean jump = true;
+            if (rules.timedClimb && CLIMB_SIM && !nearTouch(c.y(), c.velocity().y, c.onGround(), false, toY) && nearTouch(c.y(), c.velocity().y, c.onGround(), true, toY)) { jump = false; climbGaps++; }
+            c.keys(drift, false, false, false, jump, false, false);
             tick();
         }
         c.releaseKeys();
@@ -202,8 +238,42 @@ public class Body {
         return c.onGround() && cy() == toY && cx() == x && cz() == z;
     }
 
+    public static final boolean CLIMB_SIM = System.getenv("MCB_NO_CLIMBSIM") == null;
+    public long climbGaps;
+
+    /**
+     * Vanilla vertical motion in a scaffolding column whose cells below toY are climbable: from feet y, velocity v, with
+     * jump held this tick if {@code jumpNow} and afterwards while the feet are below toY (the climb() policy). True if the
+     * way out of the top ends a tick airborne within 0.002 of the top (a near touch), or does not get out within 80 ticks
+     * (then holding is worse only if the other choice is clean - see the caller).
+     */
+    static boolean nearTouch(double y, double v, boolean ground, boolean jumpNow, int toY) {
+        final double G = 0.08, D = 0.98F;
+        boolean first = true;
+        for (int t = 0; t < 80; t++) {
+            boolean climbable = Math.floor(y) < toY;
+            boolean jump = first ? jumpNow : y < toY;
+            first = false;
+            double move;
+            if (ground && jump) { move = 0.42F; ground = false; }
+            else move = climbable ? Math.max(v, -0.15) : v;
+            if (ground && move < 0) move = 0;
+            double ny = y + move;
+            if (!climbable && move < 0 && ny <= toY) {
+                // lands on the top of the column this tick; the tick before it ended at y
+                return y - toY > 0 && y - toY < 0.002;
+            }
+            if (climbable && ny < toY - 1 + 1e-9 && move < 0) return false;   // (slid back to the floor inside: no landing on top)
+            y = ny;
+            v = ((jump && climbable) ? 0.2 : move) - G;
+            v *= D;
+        }
+        return false;
+    }
+
     /** On or inside a scaffolding column at (x,z): sink (sneak held) until the feet are at level toY. */
     public boolean descend(int x, int toY, int z) {
+        c.note("descend>" + toY);
         c.holdAttack(false);
         int budget = 30 + 10 * Math.max(0, cy() - toY);
         c.keys(false, false, false, false, false, true, false);
@@ -443,8 +513,13 @@ public class Body {
 
     /** Breaks the block at (x,y,z) by aiming at the given point on it and holding attack. */
     public boolean breakBlock(int x, int y, int z, double ax, double ay, double az, int maxTicks) {
+        c.note("break " + x + "," + y + "," + z);
         int before = g.get(x, y, z);
         if (before == 0) return true;
+        // (Rules.ownBlocksOnly) only cells of the build box and the bot's own temporary blocks are ever broken
+        if (!mayBreak(x, y, z)) { refusedBreaks++; return false; }
+        // (Rules.fallDamage) not when it would drop the bot further than is safe
+        if (dangerousBreak(x, y, z)) { fallBreaksRefused++; return false; }
         // NO_STAND: not the block the bot stands on, when it would come down where it has no footing (a hopper's rim, a
         // cauldron). The block stays: a temporary one for the clean-up or for a stand beside it.
         if (NO_STAND && noFootingUnder(x, y, z)) return false;
@@ -461,6 +536,12 @@ public class Body {
         tick();
         return g.get(x, y, z) == 0;
     }
+
+    /** ({@link Rules#ownBlocksOnly}) May the block at (x,y,z) be broken? Overridden where the bot knows its own
+     *  temporary blocks. */
+    protected boolean mayBreak(int x, int y, int z) { return !rules.ownBlocksOnly || g.inBox(x, y, z); }
+    public long refusedBreaks, fallBreaksRefused;
+    protected boolean dangerousBreak(int x, int y, int z) { return false; }
 
     /** A point on a visible face of block (x,y,z) from the eye, or false. Used for breaking. */
     public boolean findBreak(int x, int y, int z, double ex, double ey, double ez, Click out) {

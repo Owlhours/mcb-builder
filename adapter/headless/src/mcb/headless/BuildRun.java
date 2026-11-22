@@ -7,6 +7,7 @@ import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.build.Target;
 import mcb.env.Client;
+import mcb.env.Depot;
 import mcb.env.Env;
 import mcb.schem.Schem;
 import net.minecraft.world.level.block.Block;
@@ -36,8 +37,14 @@ public final class BuildRun {
     private static mcb.env.Oracle oracle;
     public static long wallLimitMs = 0;
 
-    public static Outcome run(Env env, Schem schem, long tickLimit, boolean verbose) {
+    /** The rules oracle every run in this process shares (its tables are filled as items come up). */
+    public static mcb.env.Oracle oracle(Env env) {
         if (oracle == null) oracle = new mcb.env.Oracle(env);
+        return oracle;
+    }
+
+    public static Outcome run(Env env, Schem schem, long tickLimit, boolean verbose) {
+        oracle(env);
         StateInfo.init();
         long t0 = System.currentTimeMillis();
         Outcome out = new Outcome();
@@ -46,12 +53,12 @@ public final class BuildRun {
         // every build uses the same site; it is wiped clean after each run
         int ox = 64, oz = 64;
         long ta = System.currentTimeMillis();
-        Site site = new Site(env, target, ox, oz);
+        Site site = new Site(target, ox, Depot.groundTop(env, ox, oz), oz);
         long tb = System.currentTimeMillis();
-        if (!site.fitsWorld()) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
+        if (!Depot.fitsWorld(env, site)) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
         int scaffoldCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 2);
         int towerCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 8);
-        site.setUp(scaffoldCount, towerCount);
+        Depot.setUp(env, site, scaffoldCount, towerCount);
         int depotDepth0 = Site.ROW_GAP + site.depotRows * Site.ROW_PITCH + 2;
         int marginX0 = Math.max(6, site.depotCols * 2 - target.sx + 4);
         env.pinSite(ox - marginX0, oz - depotDepth0, ox + target.sx + marginX0, oz + target.sz + 6, ox, oz - 2);
@@ -90,7 +97,7 @@ public final class BuildRun {
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
         out.navStats += " busy[" + env.busyReport() + "] ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());
         for (int i = 0; i < 5; i++) env.tickServer();
-        out.judge = Judge.judge(target, site.snapshot(), env.level);
+        out.judge = Judge.judge(target, site.snapshot(env.level), env.level);
         if (verbose) System.out.println("PACKETS " + client.packetStats + " tracked=" + env.level.getChunkSource().chunkMap.isChunkTracked(client.player, (ox + 4) >> 4, 0));
         if (verbose) {
             // where the bot's picture of the world and the world disagree

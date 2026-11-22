@@ -9,6 +9,7 @@ import mcb.bot.Builder;
 import mcb.bot.Grid;
 import mcb.bot.ModView;
 import mcb.bot.Nav;
+import mcb.bot.Rules;
 import mcb.build.Judge;
 import mcb.build.Site;
 import mcb.build.StateInfo;
@@ -211,7 +212,6 @@ public final class Job {
         if (Compat.stopBaritone()) Driver.say("Baritone was pathing: cancelled.");
         meteorSwitchedOff = Compat.meteorOff();
         if (!meteorSwitchedOff.isEmpty()) Driver.say("Meteor modules off for the run: " + String.join(", ", meteorSwitchedOff));
-        Nav.MAX_FALL16 = Config.maxFall16;
         installInput();
         state = State.RUNNING;
         phase = "starting";
@@ -470,7 +470,7 @@ public final class Job {
         addPlaceholders(site0);
         if (!containers.isEmpty()) {
             phase = "reading the supply containers";
-            Builder reader = new Builder(client, grid, site0, oracle);
+            Builder reader = new Builder(client, grid, site0, oracle, Rules.client(Config.maxFall16));
             reader.maxTicks = Long.MAX_VALUE;
             reader.survey();
             for (String f : reader.surveyFailures) Driver.say("supply container " + f);
@@ -497,7 +497,7 @@ public final class Job {
             return;
         }
 
-        builder = new Builder(client, grid, site, oracle);
+        builder = new Builder(client, grid, site, oracle, Rules.client(Config.maxFall16));
         builder.maxTicks = Long.MAX_VALUE;
         builder.shortage = item -> askFor(item);
         builder.verbose = Boolean.getBoolean("mcbc.verbose");

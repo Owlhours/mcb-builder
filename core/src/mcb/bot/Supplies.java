@@ -24,7 +24,7 @@ import net.minecraft.world.phys.BlockHitResult;
 
 /** Trips to the supply chests: what to carry for the work ahead, what to put back, in which order to fetch. */
 abstract class Supplies extends Scaffolds {
-    Supplies(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    Supplies(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
     int scaffoldTrips, towerTrips, chestLogs;
 
@@ -197,7 +197,7 @@ abstract class Supplies extends Scaffolds {
         while (k < todo.size()) {
             Site.Stock first = todo.get(k);
             if (first.count <= 0) { k++; continue; }
-            int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+            int ax = standX(first), ay = standY(first), az = standZ(first);
             if (!(cx() == ax && cy() == ay && cz() == az)) {
                 boolean ok = false;
                 for (int attempt = 0; attempt < 2 && !ok; attempt++) {
@@ -228,9 +228,11 @@ abstract class Supplies extends Scaffolds {
                 stranded = false;
             }
             settle();
-            lookAt(first.chestX + 0.5, first.chestY + 0.45, first.chestZ + 0.7);
+            lookAt(lookX(first), lookY(first), lookZ(first));
             c.clickUse();
             tick();
+            // (registered containers) the screen opens when the server says so: wait for it a while (latency, Timer)
+            for (int w = 0; w < 40 && !c.containerOpen() && c.waitingForServer(w); w++) tick();
             if (!c.containerOpen()) { tick(); if (!c.containerOpen()) {
                 if (verbose && chestLogs++ < 20) log("chest at " + rel(first.chestX, first.chestY, first.chestZ) + " did not open; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + " " + StateInfo.name(g.get(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()))) + " above=" + StateInfo.name(g.get(first.chestX, first.chestY + 1, first.chestZ)) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " screen=" + c.screenOpen() + " sneaking=" + c.sneaking());
                 k++; continue; } }
@@ -241,7 +243,7 @@ abstract class Supplies extends Scaffolds {
                 if (st.isEmpty()) continue;
                 Integer want = need.get(st.getItem());
                 if (want != null && count(st.getItem()) - st.getCount() < want) continue;
-                int menuSlot = inv < 9 ? 81 + inv : 54 + (inv - 9);
+                int menuSlot = invSlot(inv);
                 if (menuSlot >= c.menu().slots.size()) break;
                 int before = st.getCount();
                 c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE);
@@ -276,7 +278,7 @@ abstract class Supplies extends Scaffolds {
                         if (pr > worst) { worst = pr; victim = inv; }
                     }
                     if (victim >= 0) {
-                        int menuSlot = victim < 9 ? 81 + victim : 54 + (victim - 9);
+                        int menuSlot = invSlot(victim);
                         if (menuSlot < c.menu().slots.size()) { c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE); tick(); deposited = true; }
                     }
                 }
@@ -287,10 +289,11 @@ abstract class Supplies extends Scaffolds {
             }
             // (a stack that would not come - no room - is left for the next trip)
             if (first.count < 0) { first.count = -first.count - 1; k++; }
-            if (deposited && c.menu().slots.size() >= 54) {
+            if (deposited && c.menu().slots.size() > 36) {
+                int nSlots = c.menu().slots.size() - 36;
                 // the chest's contents changed in ways the list does not know: read them off the open screen
                 for (Site.Stock s : stock) if (s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ) s.count = 0;
-                for (int slot = 0; slot < 54; slot++) {
+                for (int slot = 0; slot < nSlots; slot++) {
                     ItemStack st = c.menu().getSlot(slot).getItem();
                     if (st.isEmpty()) continue;
                     Site.Stock found = null;
@@ -303,4 +306,50 @@ abstract class Supplies extends Scaffolds {
             tick();
         }
     }
+
+    /** The open container screen's slot number of player inventory slot inv (0-8 hotbar, 9-35 main),
+     *  for a container of any size (a chest, a double chest, a barrel, a shulker box). */
+    int invSlot(int inv) {
+        int n = c.menu().slots.size() - 36;
+        return inv < 9 ? n + 27 + inv : n + (inv - 9);
+    }
+
+    /** (The client mod) Reads every registered container once: walks there, opens it, writes down what is in it. */
+    public void survey() {
+        boolean wasRestocking = restocking;
+        restocking = true;
+        try { surveyImpl(); } finally { restocking = wasRestocking; }
+    }
+    private void surveyImpl() {
+        java.util.List<Site.Stock> keys = new java.util.ArrayList<>();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (Site.Stock s : stock) if (seen.add(net.minecraft.core.BlockPos.asLong(s.chestX, s.chestY, s.chestZ))) keys.add(s);
+        for (Site.Stock first : keys) {
+            boolean ok = (cx() == standX(first) && cy() == standY(first) && cz() == standZ(first)) || (search(standX(first), standY(first), standZ(first), 200000) && travel());
+            if (!ok) { surveyFailures.add(first.chestX + " " + first.chestY + " " + first.chestZ + ": no way there"); continue; }
+            settle();
+            lookAt(lookX(first), lookY(first), lookZ(first));
+            c.clickUse();
+            tick();
+            for (int w = 0; w < 40 && !c.containerOpen() && c.waitingForServer(w); w++) tick();
+            if (!c.containerOpen()) { surveyFailures.add(first.chestX + " " + first.chestY + " " + first.chestZ + ": did not open"); continue; }
+            for (int w = 0; w < 5; w++) tick();   // (the contents come just after the screen)
+            int nSlots = c.menu().slots.size() - 36;
+            stock.removeIf(s -> s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ);
+            boolean any = false;
+            for (int slot = 0; slot < nSlots; slot++) {
+                ItemStack st = c.menu().getSlot(slot).getItem();
+                if (st.isEmpty()) continue;
+                Site.Stock ns = new Site.Stock(st.getItem(), st.getCount(), first.chestX, first.chestY, first.chestZ, slot);
+                ns.setAccess(first);
+                stock.add(ns);
+                any = true;
+            }
+            if (!any) { Site.Stock ns = new Site.Stock(net.minecraft.world.item.Items.AIR, 0, first.chestX, first.chestY, first.chestZ, 0); ns.setAccess(first); stock.add(ns); }
+            c.closeScreen();
+            tick();
+        }
+        // the anchor (stock.get(0)) stays a real container
+    }
+    public final java.util.List<String> surveyFailures = new java.util.ArrayList<>();
 }

@@ -30,7 +30,75 @@ import net.minecraft.world.phys.BlockHitResult;
  * them, anything in the way of the build is removed before it would be covered, and what is left goes at the end.
  */
 public final class Builder extends Supplies {
-    public Builder(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    /** A builder for the headless runs' and the singleplayer mod's world ({@link Rules#headless()}). */
+    public Builder(Client c, Grid g, Site site, Oracle oracle) { this(c, g, site, oracle, Rules.headless()); }
+
+    /** A builder for a world described by {@code rules} (the client mod passes {@link Rules#client(int)}). */
+    public Builder(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
+
+    /** (The client mod) Called when an item the build needs is gone from inventory and containers alike: true when the
+     *  owner has been asked and says there is more now (the call returns after the owner resumes). */
+    public java.util.function.Predicate<net.minecraft.world.item.Item> shortage;
+
+    /**
+     * (The client mod) Clears the build box of what is in the way before building: every block in a cell where the target
+     * has nothing, or something else, top layer first and the nearest first. Only cells the predicate allows (the
+     * caller leaves out what cannot be broken by hand in reasonable time). Returns the cells that could not be cleared.
+     */
+    public java.util.List<int[]> clearBox(java.util.function.IntPredicate allowed) {
+        java.util.List<int[]> left = new java.util.ArrayList<>();
+        String old = enter("clear");
+        try {
+            for (int y = g.oy + g.sy - 1; y >= g.oy; y--) {
+                it.unimi.dsi.fastutil.ints.IntArrayList layer = new it.unimi.dsi.fastutil.ints.IntArrayList();
+                for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) {
+                    int i = g.idx(x, y, z);
+                    if (clearWanted(i) && allowed.test(i)) layer.add(i);
+                }
+                int guard = 0;
+                while (!layer.isEmpty() && guard++ < 100000) {
+                    // the nearest first
+                    int best = -1; double bd = Double.MAX_VALUE;
+                    for (int k = 0; k < layer.size(); k++) {
+                        int i = layer.getInt(k);
+                        double dx = g.xOf(i) + 0.5 - c.x(), dy = g.yOf(i) - c.y(), dz = g.zOf(i) + 0.5 - c.z();
+                        double d = dx * dx + dy * dy * 2 + dz * dz;
+                        if (d < bd) { bd = d; best = k; }
+                    }
+                    int i = layer.removeInt(best);
+                    if (!clearWanted(i)) continue;
+                    if (!clearCell(i)) left.add(new int[] {g.xOf(i), g.yOf(i), g.zOf(i), g.cur[i]});
+                }
+            }
+        } finally { enter(old); }
+        undoRope();
+        return left;
+    }
+
+    /** A block where the target has nothing or something of another kind. */
+    public boolean clearWanted(int i) {
+        int w = g.cur[i];
+        if (w == 0 || scaffold.contains(i)) return false;
+        int t = g.tgt[i];
+        if (t != 0 && (matches(w, t) || StateInfo.loose[w] == StateInfo.loose[t])) return false;
+        return true;
+    }
+
+    private boolean clearCell(int i) {
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (!clearWanted(i)) return true;
+            if (!c.onGround()) settle();
+            var e = c.eye();
+            if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+                if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z)) * 2))) { settle(); return true; }
+            }
+            Stance st = planStance(x, y, z, null, true);
+            if (st == null) return false;
+            if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
+        }
+        return !clearWanted(i);
+    }
 
     /**
      * Order of work. Every column is built bottom-up, and a column may only take its next block when none of its
@@ -84,13 +152,13 @@ public final class Builder extends Supplies {
             if (verbose && !scaffold.isEmpty()) {
                 // what is the bot's situation, with scaffolding still standing?
                 Site.Stock first = stock.get(0);
-                boolean plain = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                boolean plain = search(standX(first), standY(first), standZ(first), 200000);
                 int e1 = nav.expanded;
                 nav.mine = this::mineTicks; nav.effort = 20;
-                boolean mining = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                boolean mining = search(standX(first), standY(first), standZ(first), 200000);
                 int e2 = nav.expanded;
                 desperate = true;
-                boolean anyhow = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                boolean anyhow = search(standX(first), standY(first), standZ(first), 200000);
                 desperate = false;
                 nav.mine = null; nav.effort = 1;
                 StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " in the chests=" + inDepot(scaffoldItem) + "/" + inDepot(towerItem) + " stranded=" + stranded + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
@@ -649,7 +717,7 @@ public final class Builder extends Supplies {
         if (g.in(x, y, z) && plainWayOut(x, y, z)) return;
         Stance st = new Stance();
         Site.Stock first = stock.get(0);
-        st.x = first.chestX; st.y = g.oy; st.z = first.chestZ + 1;
+        st.x = standX(first); st.y = standY(first); st.z = standZ(first);
         goTo(st);
         undoRope();
     }
@@ -1007,6 +1075,14 @@ public final class Builder extends Supplies {
             if (verbose) log("restock wanted: " + (count(sp.item) == 0 ? "no " + sp.item : "loose blocks low (" + count(scaffoldItem) + ")") + " placed=" + placed + " for " + rel(x, y, z) + " free=" + freeSlots());
             restock(y);
             mustFetch = null;
+            // (the client mod) nothing of it in the containers any more: the owner is asked for more (the build waits), then
+            // the containers are read again
+            if (count(sp.item) == 0 && !stranded && inDepot(sp.item) == 0 && shortage != null && shortage.test(sp.item)) {
+                survey();
+                mustFetch = sp.item;
+                restock(y);
+                mustFetch = null;
+            }
             if (count(sp.item) == 0) {
                 if (verbose) { int inStock = 0, entries = 0; for (Site.Stock st : stock) if (st.item == sp.item) { inStock += st.count; entries++; } log("OUT OF STOCK " + sp.item + ": depot has " + inStock + " in " + entries + " slots; free inventory slots " + freeSlots() + "; " + inventorySummary()); }
                 skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP;

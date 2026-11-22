@@ -224,6 +224,9 @@ public final class Env {
     /** Asks for complete server ticks for the next n ticks (after administrative changes to the world). */
     public void busy(int n) { forceFull = Math.max(forceFull, n); }
 
+    /** Fall damage on or off (off for the measured runs; the client mod's rules have it on). */
+    public void setFallDamage(boolean on) { level.getGameRules().set(GameRules.FALL_DAMAGE, on, server); }
+
     public static Env boot(Path universe) throws Exception {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();

@@ -68,6 +68,8 @@ public final class Client {
     public final Frame frame = new Frame();
     /** (trace only) what the bot is doing, set by the planner's movement skills. */
     public volatile String note = "";
+    /** What the bot is doing, for the status display. */
+    public void note(String what) { note = what; }
 
     // ---- turn taking ----
     private final Semaphore botTurn = new Semaphore(0), gameTurn = new Semaphore(0);

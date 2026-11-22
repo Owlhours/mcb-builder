@@ -15,19 +15,31 @@ public final class Grid {
     public final int groundState;
 
     public Grid(int ox, int oy, int oz, int sx, int sy, int sz, char[] target, int marginX, int marginNorth, int marginSouth, int marginTop, int groundState) {
+        this(ox, oy, oz, sx, sy, sz, target, ox - marginX, oz - marginNorth, sx + 2 * marginX, sz + marginNorth + marginSouth, sy + 1 + marginTop, groundState, true);
+    }
+
+    /** (MCB client) A grid with explicit bounds (x0 .. x0+nx-1, oy-1 .. oy-2+ny, z0 .. z0+nz-1) that must hold the target box;
+     *  {@code flatGround} fills the bottom layer with ground (the headless runs); without it the caller fills {@link #cur}. */
+    public Grid(int ox, int oy, int oz, int sx, int sy, int sz, char[] target, int x0, int z0, int nx, int nz, int ny, int groundState, boolean flatGround) {
         this.ox = ox; this.oy = oy; this.oz = oz; this.sx = sx; this.sy = sy; this.sz = sz;
-        x0 = ox - marginX; z0 = oz - marginNorth; y0 = oy - 1;
-        nx = sx + 2 * marginX; nz = sz + marginNorth + marginSouth; ny = sy + 1 + marginTop;
+        this.x0 = x0; this.z0 = z0; this.y0 = oy - 1;
+        this.nx = nx; this.nz = nz; this.ny = ny;
+        if (ox < x0 || oz < z0 || ox + sx > x0 + nx || oz + sz > z0 + nz || sy + 1 > ny) throw new IllegalArgumentException("grid does not hold the box");
         long vol = (long) nx * ny * nz;
         if (vol > Integer.MAX_VALUE - 16) throw new IllegalArgumentException("site too large");
         cur = new char[(int) vol];
         tgt = new char[(int) vol];
         this.groundState = groundState;
-        java.util.Arrays.fill(cur, 0, nx * nz, (char) groundState); // the layer under the build is the ground
+        if (flatGround) java.util.Arrays.fill(cur, 0, nx * nz, (char) groundState); // the layer under the build is the ground
         for (int y = 0; y < sy; y++) for (int z = 0; z < sz; z++) {
             System.arraycopy(target, (y * sz + z) * sx, tgt, idx(ox, oy + y, oz + z), sx);
         }
     }
+
+    /** (MCB client) What lies outside the grid: the real world as the client knows it (unknown = solid). Null: the
+     *  headless assumption (ground below, air beside and above). */
+    public interface Outside { int get(int x, int y, int z); }
+    public Outside outside;
 
     public int idx(int x, int y, int z) { return ((y - y0) * nz + (z - z0)) * nx + (x - x0); }
     public boolean in(int x, int y, int z) { return x >= x0 && x < x0 + nx && y >= y0 && y < y0 + ny && z >= z0 && z < z0 + nz; }
@@ -37,8 +49,7 @@ public final class Grid {
 
     /** Believed state at a world position; below the site it is ground, elsewhere outside it is air. */
     public int get(int x, int y, int z) {
-        if (y < y0) return groundState;
-        if (!in(x, y, z)) return 0;
+        if (!in(x, y, z)) { if (outside != null) return outside.get(x, y, z); return y < y0 ? groundState : 0; }
         return cur[idx(x, y, z)];
     }
 

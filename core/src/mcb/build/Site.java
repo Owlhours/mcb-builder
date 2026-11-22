@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import mcb.env.Env;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.Item;
@@ -16,51 +15,58 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.Level;
 
 /**
- * A build site (administrator side): where the target goes in the world and the supply chests next to it.
+ * A build site: where the target goes in the world, and where the bot's supplies are. There are two kinds:
  *
- * Layout, in world coordinates: the target's cell (0,0,0) is at (ox, oy, oz) with oy the first air layer above
- * the flat ground. Supply chests stand north of the build (smaller z): rows of double chests stacked three high,
- * each row facing south with a two-block aisle in front of it. The chests hold every block item the target
- * needs (plus a small reserve) and the temporary scaffolding blocks.
+ * <ul>
+ * <li><b>A depot</b> (the headless runs, the singleplayer mod; {@link #depot} true): the site sets up its own supply
+ * chests and fills them ({@link #setUp}). Layout, in world coordinates: the target's cell (0,0,0) is at (ox, oy, oz)
+ * with oy the first air layer above the flat ground. Supply chests stand north of the build (smaller z): rows of
+ * double chests stacked three high, each row facing south with a two-block aisle in front of it. The chests hold
+ * every block item the target needs (plus a small reserve) and the temporary scaffolding blocks.</li>
+ * <li><b>Registered containers</b> (the client mod): containers someone else owns and pointed at. Nothing is set up;
+ * the caller adds one placeholder {@link Stock} per container with its access point, and what is in them is learnt
+ * by opening them ({@code Supplies.survey}).</li>
+ * </ul>
  */
 public final class Site {
     public static final int ROW_GAP = 5;      // distance from the build to the first chest row
     public static final int ROW_PITCH = 3;
     public static final int STACK_HEIGHT = 3;
 
-    public final Env env;
+    /** True for a depot the site sets up itself; false for registered containers. */
+    public final boolean depot;
     public final Target target;
     public final int ox, oy, oz;
     public final Item scaffoldItem;
     public final int scaffoldState;
-    /** One entry per chest slot that holds something. */
+    /** One entry per chest slot that holds something (registered containers, before the survey: one placeholder per
+     *  container). */
     public final List<Stock> stock = new ArrayList<>();
     public int depotRows, depotCols;
+    /** Registered containers: every block of every supply container (both halves of a double chest), as BlockPos longs. */
+    public final List<Long> containerBlocks = new ArrayList<>();
 
     public static final class Stock {
         public Item item;
         public int count;
-        public final int chestX, chestY, chestZ; // the west block of the double chest (click either half)
-        public final int slot;                   // 0..53 in the chest screen
+        public final int chestX, chestY, chestZ; // the depot: the west block of the double chest (click either half); else the container block the bot clicks
+        public final int slot;                   // slot in the container screen (0..53 in a depot chest)
+        /** Registered containers: where the bot stands to open it (a stand cell), and the point on the container it
+         *  looks at. (A depot chest is opened from the aisle in front of it; see BuildState.standX.) */
+        public int ax, ay, az;
+        public double px, py, pz;
         public Stock(Item item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
+        public void setAccess(Stock o) { ax = o.ax; ay = o.ay; az = o.az; px = o.px; py = o.py; pz = o.pz; }
     }
 
-    public Site(Env env, Target target, int ox, int oz) { this(env, target, ox, groundTop(env, ox, oz), oz); }
-
-    /** The first air layer above the ground at (x, z), from the bottom of the world. */
-    private static int groundTop(Env env, int x, int z) {
-        int gy = env.level.getMinY();
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, gy, z);
-        while (!env.level.getBlockState(p).isAir()) p.setY(++gy);
-        return gy;
-    }
-
-    /** (the Fabric mod) A site whose first air layer is given: oy - 1 is the ground. */
-    public Site(Env env, Target target, int ox, int oy, int oz) {
+    /** A depot site whose first air layer is oy (oy - 1 is the ground); {@code mcb.env.Depot.setUp} sets up and fills
+     *  its chests. */
+    public Site(Target target, int ox, int oy, int oz) {
         StateInfo.init();
-        this.env = env;
+        this.depot = true;
         this.target = target;
         this.ox = ox;
         this.oz = oz;
@@ -79,7 +85,34 @@ public final class Site {
         this.scaffoldState = Block.getId(chosen.defaultBlockState());
     }
 
-    public boolean fitsWorld() { return oy + target.sy + 4 <= env.level.getMaxY(); }
+    /** The loose-block candidates for registered containers (quick to break, full cubes), in order of preference. */
+    public static final Block[] LOOSE = {Blocks.MOSS_BLOCK, Blocks.PALE_MOSS_BLOCK, Blocks.DRIED_KELP_BLOCK, Blocks.HAY_BLOCK, Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.NETHERRACK, Blocks.COBBLESTONE};
+
+    /**
+     * (The client mod) A site with registered containers, whose first air layer is oy.
+     * @param have what the owner has (inventory and containers), item -> count; the loose block is the candidate the
+     *             target does not use that the owner has most of (moss if none)
+     */
+    public Site(Target target, int ox, int oy, int oz, Map<Item, Integer> have) {
+        StateInfo.init();
+        this.depot = false;
+        this.target = target;
+        this.ox = ox; this.oy = oy; this.oz = oz;
+        boolean[] used = new boolean[StateInfo.N];
+        for (char c : target.ids) used[c] = true;
+        Block chosen = null;
+        int best = -1;
+        for (Block b : LOOSE) {
+            boolean inUse = false;
+            for (BlockState s : b.getStateDefinition().getPossibleStates()) if (used[Block.getId(s)]) inUse = true;
+            if (inUse) continue;
+            int n = have == null ? 0 : have.getOrDefault(b.asItem(), 0);
+            if (chosen == null || n > best) { chosen = b; best = n; }
+        }
+        if (chosen == null) chosen = Blocks.MOSS_BLOCK;
+        this.scaffoldItem = chosen.asItem();
+        this.scaffoldState = Block.getId(chosen.defaultBlockState());
+    }
 
     /** Item requirements of the target: item -> count. */
     public Map<Item, Integer> requirements() {
@@ -97,69 +130,31 @@ public final class Site {
         return need;
     }
 
-    /** Places and fills the supply chests. */
-    public void setUp(int scaffoldCount, int towerCount) {
-        Map<Item, Integer> need = requirements();
-        List<ItemStack> stacks = new ArrayList<>();
-        addStacks(stacks, scaffoldItem, scaffoldCount);
-        addStacks(stacks, net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
-        for (Map.Entry<Item, Integer> e : need.entrySet()) {
-            int n = e.getValue();
-            addStacks(stacks, e.getKey(), n + Math.max(4, n / 20));
+    /** Requirements for the cells that are not yet right in the world (what still has to be placed). */
+    public Map<Item, Integer> stillNeeded(Level level) {
+        Map<Item, Integer> need = new LinkedHashMap<>();
+        char[] now = snapshot(level);
+        for (int i = 0; i < target.ids.length; i++) {
+            int t = target.ids[i];
+            if (t == 0 || StateInfo.itemCount[t] == 0) continue;
+            if (Judge.rightCell(t, now[i])) continue;
+            Item it = StateInfo.item[t];
+            if (it == Items.AIR) continue;
+            need.merge(it, (int) StateInfo.itemCount[t], Integer::sum);
+            Item extra = StateInfo.contentItem(t);
+            if (extra != null) need.merge(extra, 1, Integer::sum);
         }
-        // (the last row of every chest stays empty: room to put things back)
-        int perChest = 45;
-        int perStack = perChest * STACK_HEIGHT;
-        int chestStacks = Math.max(1, (stacks.size() + perStack - 1) / perStack);
-        depotCols = Math.max(3, Math.min(24, (target.sx + 1) / 2));
-        depotRows = (chestStacks + depotCols - 1) / depotCols;
-        int si = 0;
-        for (int k = 0; k < chestStacks; k++) {
-            int row = k / depotCols, col = k % depotCols;
-            int cx = ox + col * 2, cz = oz - ROW_GAP - row * ROW_PITCH;
-            for (int h = 0; h < STACK_HEIGHT && si < stacks.size(); h++) {
-                int cy = oy + h;
-                BlockPos west = new BlockPos(cx, cy, cz), east = west.east();
-                BlockState base = Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, Direction.SOUTH);
-                env.level.setBlock(west, base.setValue(ChestBlock.TYPE, ChestType.RIGHT), 2);
-                env.level.setBlock(east, base.setValue(ChestBlock.TYPE, ChestType.LEFT), 2);
-                ChestBlockEntity bw = (ChestBlockEntity) env.level.getBlockEntity(west), be = (ChestBlockEntity) env.level.getBlockEntity(east);
-                for (int s = 0; s < perChest && si < stacks.size(); s++, si++) {
-                    ItemStack st = stacks.get(si);
-                    (s < 27 ? bw : be).setItem(s % 27, st.copy());
-                    stock.add(new Stock(st.getItem(), st.getCount(), cx, cy, cz, s));
-                }
-            }
-        }
+        return need;
     }
 
-    private static void addStacks(List<ItemStack> out, Item item, int count) {
-        int max = new ItemStack(item).getMaxStackSize();
-        while (count > 0) {
-            int n = Math.min(max, count);
-            out.add(new ItemStack(item, n));
-            count -= n;
-        }
-    }
-
-    /** The world's current content of the target box (for judging). */
-    public char[] snapshot() {
+    /** The world's current content of the target box (for judging), as the given level sees it. */
+    public char[] snapshot(Level level) {
         char[] out = new char[target.ids.length];
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         int i = 0;
         for (int y = 0; y < target.sy; y++) for (int z = 0; z < target.sz; z++) for (int x = 0; x < target.sx; x++, i++) {
-            out[i] = (char) Block.getId(env.level.getBlockState(p.set(ox + x, oy + y, oz + z)));
+            out[i] = (char) Block.getId(level.getBlockState(p.set(ox + x, oy + y, oz + z)));
         }
         return out;
-    }
-
-    /** Test helper: writes the target straight into the world (as a creative-mode paste would). */
-    public void pasteTarget(int flags) {
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        int i = 0;
-        for (int y = 0; y < target.sy; y++) for (int z = 0; z < target.sz; z++) for (int x = 0; x < target.sx; x++, i++) {
-            int id = target.ids[i];
-            if (id != 0) env.level.setBlock(p.set(ox + x, oy + y, oz + z), StateInfo.state[id], flags);
-        }
     }
 }

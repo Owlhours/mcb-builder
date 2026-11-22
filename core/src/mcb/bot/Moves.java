@@ -28,7 +28,7 @@ import net.minecraft.world.phys.BlockHitResult;
  * the bot from going where it could not get out again.
  */
 abstract class Moves extends BuildState {
-    Moves(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    Moves(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
     /**
      * Standing on a half-height floor (bottom slabs) with no way up: nothing can be pillared from here. Take out
@@ -86,7 +86,7 @@ abstract class Moves extends BuildState {
     boolean wayOut(int x, int y, int z, boolean breaking) {
         trapChecks++;
         Site.Stock first = stock.get(0);
-        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int ax = standX(first), ay = standY(first), az = standZ(first);
         int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
         byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
         int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
@@ -164,7 +164,7 @@ abstract class Moves extends BuildState {
     boolean plainWayOut(int x, int y, int z) {
         trapChecks++;
         Site.Stock first = stock.get(0);
-        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int ax = standX(first), ay = standY(first), az = standZ(first);
         int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
         byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
         int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
@@ -250,7 +250,7 @@ abstract class Moves extends BuildState {
     int exitLevel(int x, int y, int z) {
         if (plainWayOut(x, y, z)) return 2;
         Site.Stock first = stock.get(0);
-        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int ax = standX(first), ay = standY(first), az = standZ(first);
         int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
         byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
         int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
@@ -594,6 +594,7 @@ abstract class Moves extends BuildState {
 
     int mineTicks(int x, int y, int z) {
         if (!g.in(x, y, z) || y < g.oy) return -1;   // (never the ground the site stands on)
+        if (!mayBreak(x, y, z)) return -1;           // (Rules.ownBlocksOnly: nothing outside the box but the bot's own blocks)
         int w = g.get(x, y, z);
         if (w == 0) return 0;
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;

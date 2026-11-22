@@ -166,6 +166,18 @@ public final class Client {
     public BlockState block(BlockPos pos) { return env.level.getBlockState(pos); }
     public net.minecraft.world.level.Level level() { return env.level; }
 
+    /** Whether the chunk holding (x, z) is loaded in {@code level}. */
+    public static boolean loaded(net.minecraft.world.level.Level level, int x, int z) { return level.hasChunk(x >> 4, z >> 4); }
+    /** Chunks that arrived since the last call, as ChunkPos longs. The server-side bot is never sent chunks it has to
+     *  read again (its site is pinned): always none. */
+    public long[] takeLoadedChunks() { return NO_CHUNKS; }
+    private static final long[] NO_CHUNKS = new long[0];
+    /** True while it is worth waiting another tick for the server to answer the w-th wait. In process the server
+     *  answers within the tick: never. */
+    public boolean waitingForServer(int w) { return false; }
+    /** What the bot is doing, for a status display (nothing shows it here). */
+    public void note(String what) { }
+
     public int changeCount() { return nChanges; }
     /** Returns the backing array of {x,y,z,stateId} quadruples; valid entries: changeCount(). Call clearChanges() after. */
     public int[] changes() { return changes; }
@@ -212,8 +224,20 @@ public final class Client {
     public int queuedSlotClicks() { return screenClicks.size(); }
 
     // ------------------------------------------------------------------ the tick
+    /**
+     * A fingerprint of everything the bot did, tick by tick: the view, the keys, the clicks, the slot and screen
+     * actions it asked for, and where the player then was. Two runs with the same trace played the same course.
+     * Observation only; it changes nothing.
+     */
+    public long trace = 0xcbf29ce484222325L;
+    private void traceIn(long v) { trace = (trace ^ v) * 0x100000001b3L; }
+
     public void tick() {
         ticks++;
+        traceIn(Float.floatToIntBits(yaw)); traceIn(Float.floatToIntBits(pitch));
+        traceIn((kForward ? 1 : 0) | (kBack ? 2 : 0) | (kLeft ? 4 : 0) | (kRight ? 8 : 0) | (kJump ? 16 : 0) | (kSneak ? 32 : 0) | (kSprint ? 64 : 0)
+            | (useHeld ? 128 : 0) | (attackHeld ? 256 : 0) | (useClick ? 512 : 0) | (attackClick ? 1024 : 0) | (wantCloseScreen ? 2048 : 0) | (wantOpenInventory ? 4096 : 0));
+        traceIn(wantSlot); traceIn(screenClicks.size());
         acceptTeleports();
         // view direction: the mouse turns the player continuously; by tick time the new angles are in effect
         player.setYRot(yaw);
@@ -249,6 +273,7 @@ public final class Client {
         // --- the server's tick ---
         env.tick(player);
         acceptTeleports();
+        traceIn(Double.doubleToLongBits(player.getX())); traceIn(Double.doubleToLongBits(player.getY())); traceIn(Double.doubleToLongBits(player.getZ()));
     }
 
     private void handleKeybinds() {

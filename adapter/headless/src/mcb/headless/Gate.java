@@ -74,7 +74,7 @@ public final class Gate {
                 }
                 try (var st = Files.walk(universe)) { st.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete()); } catch (Exception ignored) { }
             }
-            default -> { System.err.println("usage: Gate run|export|list ..."); System.exit(2); }
+            default -> { System.err.println("usage: Gate run|export|list ... (client mode: ClientGate)"); System.exit(2); }
         }
         System.exit(0);
     }

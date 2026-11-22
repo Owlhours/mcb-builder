@@ -24,7 +24,7 @@ import net.minecraft.world.phys.BlockHitResult;
 
 /** Choosing where to stand for a cell: somewhere that exists, an edge to lean over, or a temporary column. */
 abstract class Stances extends Placing {
-    Stances(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
+    Stances(Client c, Grid g, Site site, Oracle oracle, Rules rules) { super(c, g, site, oracle, rules); }
 
     final int towerState = Block.getId(net.minecraft.world.level.block.Blocks.SCAFFOLDING.defaultBlockState());
     static final int[] DYS = {0, 1, -1, -2, 2, -3, -4};

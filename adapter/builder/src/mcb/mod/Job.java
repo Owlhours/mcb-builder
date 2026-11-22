@@ -79,7 +79,7 @@ public final class Job {
         scaffoldCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 2);
         towerCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 8);
         // the chest rows as Site.setUp will lay them out (same counts)
-        Site dry = new Site(null, target, ox, oy, oz);
+        Site dry = new Site(target, ox, oy, oz);
         long stacks = stacks(dry.scaffoldItem, scaffoldCount) + stacks(net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
         for (Map.Entry<net.minecraft.world.item.Item, Integer> e : dry.requirements().entrySet()) { int n = e.getValue(); stacks += stacks(e.getKey(), n + Math.max(4, n / 20)); }
         int perStack = 45 * Site.STACK_HEIGHT;
@@ -167,8 +167,8 @@ public final class Job {
             phase = "setting up";
             applyWorldRules();
             long cleared = clearBox();
-            site = new Site(env, target, ox, oy, oz);
-            site.setUp(scaffoldCount, towerCount);
+            site = new Site(target, ox, oy, oz);
+            mcb.env.Depot.setUp(env, site, scaffoldCount, towerCount);
             env.pinSite(ox - marginX, oz - depotDepth, ox + target.sx + marginX, oz + target.sz + 6, ox, oz - 2);
             Oracle oracle = new Oracle(env, scratch);
             client = env.join("Builder", ox + 0.5, oy, oz - 2 + 0.5);
@@ -203,7 +203,7 @@ public final class Job {
             last = this;
         }
         if (server.isRunning() && site != null) {
-            result = Judge.judge(target, site.snapshot(), level);
+            result = Judge.judge(target, site.snapshot(level), level);
             tell.accept(Component.literal("[mcb] " + name + ": " + phase + " after " + ticks() + " ticks - " + (result.pass ? "PASS" : "FAIL") + " (" + result.failedSections + " of " + result.sections + " sections fail; missing " + result.missing + ", wrong " + result.wrong + ", left behind " + result.leftover + "). /mcb judge for the sections."));
         }
     }
