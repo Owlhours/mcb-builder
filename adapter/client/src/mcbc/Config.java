@@ -33,6 +33,10 @@ public final class Config {
     public static String meteorOff = "auto-tool,auto-eat,speed-mine,SuperInstaMine,pickaxe-keeper,bow-spam,no-ghost-blocks,auto-walk,scaffold,freecam,kill-aura,auto-totem,auto-replenish,auto-armor,inventory-tweaks,nuker,auto-mine,anchor-aura,crystal-aura";
     /** Furthest safe drop, in sixteenths of a block (fall damage is floor(fall - 3)). */
     public static int maxFall16 = 56;
+    /** After a death and respawn in the build's dimension, start the build again by itself once the player is
+     *  healthy and nothing hostile is near (otherwise it waits for /mcbc resume). Off: a bot that died probably died
+     *  for a reason. */
+    public static boolean autoResumeAfterDeath = false;
     /** Write a line per bot event to logs/mcb-client.log. */
     public static boolean verboseLog = true;
 
@@ -56,6 +60,7 @@ public final class Config {
         meteorOff = p.getProperty("meteorOff", meteorOff);
         maxFall16 = (int) d(p, "maxFall16", maxFall16);
         verboseLog = Boolean.parseBoolean(p.getProperty("verboseLog", "" + verboseLog));
+        autoResumeAfterDeath = Boolean.parseBoolean(p.getProperty("autoResumeAfterDeath", "" + autoResumeAfterDeath));
         save();
     }
 
@@ -77,6 +82,7 @@ public final class Config {
         p.setProperty("meteorOff", meteorOff);
         p.setProperty("maxFall16", "" + maxFall16);
         p.setProperty("verboseLog", "" + verboseLog);
+        p.setProperty("autoResumeAfterDeath", "" + autoResumeAfterDeath);
         try (Writer w = Files.newBufferedWriter(file)) { p.store(w, "MCB Builder (client). Delete a line to get its default back."); } catch (IOException e) { McbcMod.LOG.warn("[mcbc] config", e); }
     }
 }

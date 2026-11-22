@@ -24,6 +24,14 @@ public final class Schem {
     public long unknownCells;
     public String format = "?";
     public int dataVersion;
+    /**
+     * Where this box's cell (0,0,0) lies in the file's own coordinates: placed with its origin (the point Litematica or
+     * Baritone put at the placement origin) at P, the box's cell (0,0,0) is at P + (offX, offY, offZ). Not 0 when the readers cropped empty
+     * layers off the file's box (a floating build keeps its height this way), or when a Litematica file's regions
+     * start away from its origin. Information only: not saved in the .mcb format, not part of the content hash, and
+     * nothing in the bot or the judge reads it (only the client mod, to place a build where the file says).
+     */
+    public int offX, offY, offZ;
 
     public Schem(int sx, int sy, int sz, char[] ids) {
         if ((long) sx * sy * sz != ids.length) throw new IllegalArgumentException("size mismatch");
@@ -60,6 +68,23 @@ public final class Schem {
         }
         Schem s = new Schem(nx, ny, nz, out);
         s.unknownCells = unknownCells; s.format = format; s.dataVersion = dataVersion;
+        s.offX = offX + x0; s.offY = offY + y0; s.offZ = offZ + z0;
+        return s;
+    }
+
+    /**
+     * This box with the empty layers the readers cropped off below it put back (as air), so that its bottom layer is
+     * the file's origin layer again ({@link #offY} 0). For placing a build where the file says: the client mod uses
+     * it, so that a floating build floats. Nothing in the bot or the judge calls it.
+     */
+    public Schem keepingHeight() {
+        if (offY <= 0) return this;
+        int layer = sx * sz;
+        char[] out = new char[ids.length + offY * layer];
+        System.arraycopy(ids, 0, out, offY * layer, ids.length);
+        Schem s = new Schem(sx, sy + offY, sz, out);
+        s.unknownCells = unknownCells; s.format = format; s.dataVersion = dataVersion;
+        s.offX = offX; s.offY = 0; s.offZ = offZ;
         return s;
     }
 

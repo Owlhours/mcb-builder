@@ -136,6 +136,8 @@ public final class SchemIO {
         }
         Schem s = new Schem(sx, sy, sz, ids);
         s.unknownCells = unknown; s.format = "litematic"; s.dataVersion = dv;
+        // (the box starts at the regions' lowest corner, which is the file's origin only when no region lies below it)
+        s.offX = (int) minX; s.offY = (int) minY; s.offZ = (int) minZ;
         return s;
     }
 

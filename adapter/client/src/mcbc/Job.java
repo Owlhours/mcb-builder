@@ -48,6 +48,15 @@ public final class Job {
     /** The supply containers: the block clicked, its other half (or null), the stand cell and look point. */
     final List<Container> containers = new ArrayList<>();
     final String layoutProblem;
+    /** What a restart after a death needs: the schematic, the containers and the dimension the build is in. */
+    final Schem schem;
+    final List<BlockPos> supplies;
+    final net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension;
+    /** The player died and respawned in the build's dimension: the bot thread is gone, and the build starts again
+     *  (as a new /mcbc build of the same schematic at the same place) on /mcbc resume, or by itself with
+     *  {@link Config#autoResumeAfterDeath}. */
+    boolean waitingAfterDeath;
+    int deaths, ticksSinceRespawn;
 
     volatile State state = State.NEW;
     LocalClient client;
@@ -86,6 +95,9 @@ public final class Job {
         StateInfo.init();
         this.mc = mc;
         this.name = name;
+        this.schem = schem;
+        this.supplies = new ArrayList<>(supplies);
+        this.dimension = mc.level.dimension();
         this.target = new Target(schem);
         this.ox = ox; this.oy = oy; this.oz = oz;
         ClientLevel level = mc.level;
@@ -321,6 +333,8 @@ public final class Job {
 
     // ------------------------------------------------------------------ every tick (game thread)
     void mainTick() throws RuntimeException {
+        if (mc.player != null && mc.level != null && client != null && mc.player != client.player
+                && mc.level.dimension() == dimension && (waitingAfterDeath || client.player.isDeadOrDying())) { afterDeath(); return; }
         if (mc.player == null || mc.level == null || (client != null && mc.player != client.player)) { endText = "stopped: left the world"; stop("left the world"); return; }
         if (finished) { finishOnGameThread(); return; }
         if (state == State.PAUSED) {
@@ -422,8 +436,63 @@ public final class Job {
 
     private void finishOnGameThread() {
         finished = false;
-        if (state == State.DONE) return;
+        if (state == State.DONE || waitingAfterDeath) return;
         end();
+    }
+
+    // ------------------------------------------------------------------ after a death (game thread)
+    /**
+     * The player died and has respawned (a new player, same dimension). The planner's thread is retired - it was
+     * planning for a body that no longer exists - and the job waits, paused. On /mcbc resume (or by itself with
+     * {@link Config#autoResumeAfterDeath}, once the new player is healthy and nothing hostile is near) the build
+     * starts again as a fresh run at the same place: it reads the site and the containers again and builds what is
+     * still missing, as a second /mcbc build does after a reconnect. What the player dropped is not picked up; if
+     * the containers now run short, the run says so, as at any start.
+     */
+    private void afterDeath() {
+        if (!waitingAfterDeath) {
+            waitingAfterDeath = true;
+            deaths++;
+            ticksSinceRespawn = 0;
+            if (client != null) {
+                client.stopAsked = true;
+                if (thread != null && thread.isAlive()) {
+                    if (!late) client.giveTurn();
+                    try { thread.join(3000); } catch (InterruptedException ignored) { }
+                }
+            }
+            finished = false;
+            restoreInput();
+            state = State.PAUSED;
+            resumeAsked = false;
+            pauseReason = "died";
+            McbcMod.event("died; respawned in the same dimension (death " + deaths + ")");
+            Driver.say("paused: died. You have control. /mcbc resume starts the build again where it stands (it reads the site and the containers again), /mcbc stop ends it."
+                + (Config.autoResumeAfterDeath ? " (autoResumeAfterDeath is on: it starts again by itself once you are healthy and nothing hostile is near.)" : ""));
+            return;
+        }
+        ticksSinceRespawn++;
+        if (mc.gui.screen() != null || mc.player.isDeadOrDying()) return;   // (the death screen, or a chat)
+        boolean go = resumeAsked;
+        if (!go && Config.autoResumeAfterDeath && ticksSinceRespawn > 40) {
+            lastHealth = mc.player.getHealth();
+            go = Safety.check(mc, this) == null;
+        }
+        if (!go) return;
+        resumeAsked = false;
+        Job next = new Job(mc, name, schem, ox, oy, oz, supplies);
+        if (next.layoutProblem != null) { Driver.say("cannot start again: " + next.layoutProblem); return; }
+        if (next.plan().unloadedChunks > 0) { Driver.say("cannot start again yet: parts of the site are not loaded; come closer, then /mcbc resume"); return; }
+        next.deaths = deaths;
+        Compat.meteorOn(meteorSwitchedOff);   // (the new run switches them off again, and back on at its end)
+        endText = "ended by a death; started again";
+        state = State.DONE;
+        endMs = System.currentTimeMillis();
+        McbcMod.event("RESULT " + statsLine());
+        Driver.last = this;
+        Driver.job = next;
+        next.start();
+        Driver.say("starting " + name + " again after the death (" + deaths + ")");
     }
 
     // ------------------------------------------------------------------ the run (bot thread)
@@ -582,7 +651,7 @@ public final class Job {
             + " settleTicks=" + (client == null ? 0 : client.settleTicks) + " ackWaitTicks=" + (client == null ? 0 : client.ackWaitTicks)
             + " droppedClicks=" + (client == null ? 0 : client.droppedClicks) + " breakHolds=" + (client == null ? 0 : client.breakHolds) + " uses=" + (client == null ? 0 : client.uses)
             + " setbacks=" + setbacks + " rejected=" + rejected + " edgeGuards=" + edgeGuards + " lateTicks=" + lateTicks + " thinkMs=" + (client == null ? 0 : client.thinkNanos / 1_000_000)
-            + " wallMs=" + wall + " timer=" + timerAtStart + " notCleared=" + notCleared.size() + " scaffoldLeft=" + (builder == null ? 0 : ModView.scaffold(builder))
+            + " deaths=" + deaths + " wallMs=" + wall + " timer=" + timerAtStart + " notCleared=" + notCleared.size() + " scaffoldLeft=" + (builder == null ? 0 : ModView.scaffold(builder))
             + " end=\"" + endText + "\"";
     }
 }

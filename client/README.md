@@ -27,7 +27,9 @@ Put your schematics (`.schem`, `.litematic`, `.nbt`, `.schematic`) in `.minecraf
    build doesn't use (moss, dirt, netherrack or cobblestone), and **16 or more scaffolding**. The preview lists
    what's needed.
 3. **Run `/mcbc build <name>`.** The build goes 3 blocks in front of you, at your feet's height.
-   - `/mcbc build <name> x y z` puts its corner at x y z, with y the first layer above the ground.
+   - `/mcbc build <name> x y z` puts the schematic's origin at x y z, as Litematica and Baritone place it (y is the
+     first layer above the ground for a file whose bottom layer has blocks). Empty layers at the bottom of the file
+     are kept, so a floating build floats at its height in the file.
    - `/mcbc build litematica` uses the placement selected in Litematica (unrotated, unmirrored, saved to a file).
 4. **The first `/mcbc build` is a dry run.** It changes nothing. For a minute it shows particles for:
    - the build box (green) and the area the bot works in (yellow);
@@ -52,6 +54,12 @@ Put your schematics (`.schem`, `.litematic`, `.nbt`, `.schematic`) in `.minecraf
 Opening the chat pauses it, and it carries on by itself when the chat closes. If it runs out of a material
 mid-build, it pauses and says what it needs. Fill a container and run `/mcbc resume`.
 
+**If you die,** the build pauses and waits. After you respawn (in the same dimension), `/mcbc resume` starts it
+again where it stands: the bot reads the site and the containers again and builds what is still missing. Walk back
+near the site first if you respawned far away; it says so if parts of the site are not loaded. What you dropped is
+not picked up, so the containers may now run short; it tells you, as at any start. With `autoResumeAfterDeath` on,
+it starts again by itself once you are healthy and nothing hostile is near.
+
 ## Settings (`config/mcb-client.properties`)
 
 | setting | default | what |
@@ -66,6 +74,7 @@ mid-build, it pauses and says what it needs. Fill a container and run `/mcbc res
 | `maxClearTicks` | 200 | blocks slower than this to break by hand are left |
 | `maxFall16` | 56 | the longest planned drop in sixteenths of a block (3.5 blocks: no fall damage) |
 | `meteorOff` | (list) | Meteor modules switched off for the run and back on afterwards |
+| `autoResumeAfterDeath` | false | after a death and respawn, start the build again by itself (otherwise: `/mcbc resume`) |
 
 ## What the server sees
 

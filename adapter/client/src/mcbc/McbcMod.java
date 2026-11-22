@@ -178,7 +178,15 @@ public final class McbcMod implements ClientModInitializer {
     private static int start(CommandContext<FabricClientCommandSource> c, String name, Schem schem, BlockPos origin, boolean previewOnly) {
         Minecraft mc = c.getSource().getClient();
         if (Driver.job != null) return fail(c, "a build is running (" + Driver.job.name + "); /mcbc stop first");
+        // The origin given (or Litematica's) is the file's origin, as schematic tools use it. The readers cropped the
+        // file to its blocks; the empty layers below them are put back (a floating build floats, and the site still
+        // starts on the origin's layer), and the box moves sideways by what was cropped off in x and z (Schem.offX).
+        // Without an origin the box goes in front of the player, its bottom (the file's origin layer) at the feet.
+        BlockPos fileOrigin = origin;
+        int floatY = Math.max(0, schem.offY);   // (empty layers under the blocks)
+        schem = schem.keepingHeight();
         if (origin == null) origin = ahead(mc, schem);
+        else origin = origin.offset(schem.offX, schem.offY, schem.offZ);   // (offY is now 0, or below 0 for a region under the origin)
         Job job = new Job(mc, name, schem, origin.getX(), origin.getY(), origin.getZ(), new ArrayList<>(Driver.supplies));
         if (job.layoutProblem != null) return fail(c, name + ": " + job.layoutProblem);
         Preview.Plan plan = job.plan();
@@ -189,6 +197,9 @@ public final class McbcMod implements ClientModInitializer {
             lastKey = previewOnly ? null : key; lastKeyMs = now;
             Driver.preview = new Preview(job, plan, key);
             say(c, name + ": " + job.target.blocks + " blocks, " + schem.sx + " x " + schem.sy + " x " + schem.sz + "; box " + job.boxText() + " (green). The bot works in " + job.siteText() + " (yellow).");
+            if (fileOrigin != null && (schem.offX != 0 || schem.offZ != 0 || floatY != 0))
+                say(c, "The file's origin is at " + fileOrigin.toShortString() + "; its blocks start " + schem.offX + " " + floatY + " " + schem.offZ + " from it" + (floatY > 0 ? " (the build floats " + floatY + " above the origin's layer, as in the file)" : "") + ".");
+            else if (floatY > 0) say(c, "The build floats " + floatY + " above the box's bottom layer, as in the file.");
             say(c, "Supply containers: " + (job.containers.isEmpty() ? "none (inventory only: /mcbc supply add looks at one)" : job.containers.size() + " (blue; read when the build starts)") + ".");
             say(c, "In the box: " + plan.alreadyRight + " cells already right; it would BREAK " + plan.toBreak.size() + " blocks (red)" + (plan.tooHard.isEmpty() ? "" : ", and leave " + plan.tooHard.size() + " too hard to break by hand (purple)") + (plan.fluids.isEmpty() ? "" : "; " + plan.fluids.size() + " fluid cells (it cannot remove those)") + (plan.containersInBox > 0 ? "; " + plan.containersInBox + " supply container blocks (left alone)" : "") + ". Nothing outside the box is broken; its temporary blocks outside the box are taken away again.");
             StringBuilder sb = new StringBuilder();
