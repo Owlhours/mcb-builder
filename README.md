@@ -53,6 +53,11 @@ use them only to compile. They are never committed or redistributed. Every push 
 [GitHub Actions](.github/workflows/ci.yml), which also runs `tools/check-public-tree.sh`: it fails if game files,
 schematics or compiled code are anywhere in the repository or its history.
 
+**Minecraft 26.3:** `MC=26.3 builder/build.sh` and `MC=26.3 client/build.sh` build the same mods for 26.3. Only the
+adapter knows the difference ([adapter/versions/](adapter/versions/README.md)); the regression gate passes on 26.3
+with its own expected results. The 26.3 jars have not yet been tried in a real game, and the released jars and every
+measured number above are for 26.2.
+
 ## For developers
 
 The planner is plain Java with no Minecraft classes (`core/`); everything that touches the game is in `adapter/`.

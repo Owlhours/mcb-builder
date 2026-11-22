@@ -94,3 +94,45 @@ Judge decisions were made separately from the bot:
 
 **Not decided when the project ended:** `walkstandbp` (+11 builds over four seeds, within noise) and `odbp`. Both
 are off.
+
+## 2026-11-22: the reorganisation
+
+After the release the code was reorganised for people who want to reuse it, without changing what the bot does.
+[DESIGN.md](DESIGN.md) describes the result; in short:
+- **one planner**: the client mod's copy of the planner was merged into the shared one (`core/`), its differences
+  behind `mcb.bot.Rules` and `Site.depot`; the harness in mcb-sim compiles the same planner from here;
+- **an adapter layer**: nothing outside `adapter/` uses Minecraft's classes; the planner reads block facts from
+  tables the adapter fills, and acts through two interfaces (`mcb.game.Client`, `mcb.game.Oracle`);
+- **tests**: unit tests that need no game, a regression gate of 31 test builds generated in code, and a check of
+  the client mod's planner against its old copy, all in CI;
+- **liftable pieces**: the schematic readers, the judge, the route search and the placement oracle, each with a
+  README and a runnable example.
+
+**The baseline** was recorded at the published commits (mcb-builder `0ff6f68`, mcb-sim `8414a5c`) before anything
+changed: the Java bot in the headless game on 290 corpus builds (dev3, dev2big, small220; the 9 release
+schematics are among them or were added), and `mcsim` at its default revision on the same builds.
+
+**The checks** (corpus results stay outside the repositories; only these summaries are here):
+
+| check | result |
+|---|---|
+| gate (31 generated builds), every step | identical rows at every commit |
+| client check (old client planner vs shared, client settings), every step from the merge | 31 of 31 identical, traces included |
+| client check on 43 corpus builds | 41 identical; the other 2 vary from run to run on both sides alike (the same alternative courses, with the same traces) |
+| full tier, Java after vs Java baseline (290 builds) | identical on every build where the baseline is stable; see below |
+| full tier, Java after vs `mcsim` | as at the baseline: `5f74a607` (Java 50,884 ticks every time, `mcsim` 51,014) and `95a77a6a` (draws clock-seeded random numbers) differ, as before the change |
+| fast tier on the final commit (small220 + the small release schematics, 221 builds) | identical to the baseline, apart from the baseline's one flake below |
+| `mcsim` on the 31 gate builds (mcb-sim `scripts/synth-check.sh`) | 31 of 31 identical to the Java rows |
+| simulator tables (`harness/run.sh tables`) | `states.tsv` byte-identical; placement tables identical except the three items with a random age |
+
+**Java run-to-run variation.** Repeated runs showed that the Java bot is not perfectly reproducible on an
+overloaded machine: the game loads chunks on worker threads, and when the machine can't keep up the bot can see a
+block update a tick later. On build `896c4378` the baseline once took 75,653 ticks instead of its usual 57,434 (which
+`mcsim` and every later run gave); on `3b87ace3` both the old and the new code take 5,924 instead of 5,912 now and
+then under overload (16 processes on 8 cores: baseline 1 in 16, new code 2 in 16). Every difference between the
+"before" and "after" runs was re-run on both sides until it was clear which it was; none was a change in the bot.
+
+**Minecraft 26.3.** The same day the adapter was made to build and run on 26.3 as well (`MC=26.3`), with the
+version differences in two small per-version classes; see [../adapter/versions/README.md](../adapter/versions/README.md).
+On 26.3 the gate passes with its own expected rows: 29 of 31 builds take exactly the 26.2 course; two differ by a
+rounding difference that comes from the 26.3 test world's ground being at another height.
