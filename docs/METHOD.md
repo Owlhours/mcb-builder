@@ -164,8 +164,8 @@ How closely it matches the real game:
   build took exactly its 537,714 ticks, with the same judge counts.
 - The simulator flags its own blind spots: a run whose log shows `unmodelled` or `lost` above 0 isn't trusted.
 
-**Every headline number in these READMEs comes from the simulator.** It lives in a separate
-repository with the fast simulator and the headless Java runner, which is not public yet.
+**Every headline number in these READMEs comes from the simulator.** It lives in the companion
+repository [mcb-sim](https://github.com/Owlhours/mcb-sim), with the fast simulator and the headless Java runner.
 
 **The goal samples.** Each is 1,000 builds drawn at random from the corpus, keeping the corpus's mix of sizes:
 297 builds over 10k blocks, 43 of them over 100k. Neither sample was used for development; they were measurement
