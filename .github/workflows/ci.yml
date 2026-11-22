@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No game files or binaries in the repository (whole history)
+        run: tools/check-public-tree.sh --history
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Cache downloaded compile dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            builder/.deps
+            client/.deps
+          key: deps-${{ hashFiles('builder/build.sh', 'client/build.sh') }}
+      - name: Build the singleplayer mod
+        run: builder/build.sh
+      - name: Build the client mod
+        run: client/build.sh
+      - name: Checksums
+        run: |
+          mkdir -p dist
+          cp builder/build/mcb-builder-*.jar client/build/mcb-client-*.jar dist/
+          (cd dist && sha256sum *.jar | tee SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcb-jars
+          path: dist/

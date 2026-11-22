@@ -49,8 +49,9 @@ tick for tick on the builds checked in both; [docs/METHOD.md](docs/METHOD.md) sa
 **Build it yourself:** run `builder/build.sh` or `client/build.sh` with a JDK 25. Minecraft 26.2 ships unobfuscated,
 so the mods compile directly against the vanilla jars; the scripts download those from Mojang (and Fabric Loader,
 Mixin and Fabric API from the Fabric Maven) into a local `.deps/` folder, check each against a pinned SHA-1, and
-use them only to compile. They are never committed or redistributed. public-tree check passed checks
-that no game files, schematics or compiled code are in the repository or its history.
+use them only to compile. They are never committed or redistributed. Every push is built by
+[GitHub Actions](.github/workflows/ci.yml), which also runs `tools/check-public-tree.sh`: it fails if game files,
+schematics or compiled code are anywhere in the repository or its history.
 
 ## How it was made
 
