@@ -25,7 +25,8 @@ Put your schematics (`.schem`, `.litematic`, `.nbt`, `.schematic`) in `.minecraf
    With no containers, the bot uses only what you carry.
 2. **Fill them,** or your inventory, with what the build needs. Add **32 or more temporary blocks** of a kind the
    build doesn't use (moss, dirt, netherrack or cobblestone), and **16 or more scaffolding**. The preview lists
-   what's needed.
+   what's needed. These are the least it starts with: tall builds use up many more temporary blocks (a few stacks
+   for a tower of glass), because the blocks it takes down again are not always picked up.
 3. **Run `/mcbc build <name>`.** The build goes 3 blocks in front of you, at your feet's height.
    - `/mcbc build <name> x y z` puts the schematic's origin at x y z, as Litematica and Baritone place it (y is the
      first layer above the ground for a file whose bottom layer has blocks). Empty layers at the bottom of the file
@@ -52,7 +53,11 @@ Put your schematics (`.schem`, `.litematic`, `.nbt`, `.schematic`) in `.minecraf
 | `/mcbc list`, `/mcbc reload` | lists schematics; re-reads `config/mcb-client.properties` |
 
 Opening the chat pauses it, and it carries on by itself when the chat closes. If it runs out of a material
-mid-build, it pauses and says what it needs. Fill a container and run `/mcbc resume`.
+mid-build, it first reads the supply containers again, then, if there really is none left, pauses and says what it
+needs. Fill a container and run `/mcbc resume`. The same goes for temporary blocks: without them it cannot reach
+cells high up, so when they run out (or it cannot get down to the containers without them) it pauses and asks for
+more of the kind it started with (it names it). `/mcbc resume` without adding any carries on and skips those cells; a build that ends with cells missing
+says why they were skipped.
 
 **If you die,** the build pauses and waits. After you respawn (in the same dimension), `/mcbc resume` starts it
 again where it stands: the bot reads the site and the containers again and builds what is still missing. Walk back

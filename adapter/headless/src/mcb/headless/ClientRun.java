@@ -58,6 +58,12 @@ public final class ClientRun {
     /** The client mod's default (Config.maxFall16). */
     public static int maxFall16 = 56;
 
+    /** (checks) Temporary blocks and scaffolding put in the chests instead of the usual plenty; -1: the usual. */
+    public static int looseSupply = -1, scaffoldingSupply = -1;
+    /** (checks) The owner, asked when the bot is out of an item (Builder.shortage): true when it says there is more
+     *  now. Null: an owner who never answers (the planner goes on as it would without one). */
+    public static java.util.function.BiPredicate<BotClient, Integer> owner;
+
     // Site's depot layout, spelled out here so that this file also compiles against the client mod's old Site; but
     // stacked two high, not three: the client mod registers only containers it can open standing on the ground or
     // one block lower (mcbc.Job.findAccess), so a third chest would be refused.
@@ -78,6 +84,8 @@ public final class ClientRun {
         Site dry = new Site(target, ox, oy, oz, null);
         int scaffoldCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 2);
         int towerCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 8);
+        if (looseSupply >= 0) scaffoldCount = looseSupply;
+        if (scaffoldingSupply >= 0) towerCount = scaffoldingSupply;
         List<BlockPos> chests = placeChests(env, target, dry, ox, oy, oz, scaffoldCount, towerCount);
         // ---- mcbc.Job's layout: the box, the containers, 2 more round them, then a margin of 6
         int x0 = ox, z0 = oz, x1 = ox + target.sx - 1, z1 = oz + target.sz - 1;
@@ -141,7 +149,7 @@ public final class ClientRun {
         // ---- build
         Builder b = ClientPlanner.builder(client, grid, site, oracle, maxFall16);
         b.maxTicks = 48L * 3600 * 20;
-        b.shortage = item -> false;
+        b.shortage = owner == null ? item -> false : item -> owner.test(client, item);
         try {
             b.clearBox(i -> {
                 int w = grid.cur[i];

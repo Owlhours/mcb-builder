@@ -32,6 +32,8 @@ public final class Builder extends Supplies {
     /** (The client mod) Called when an item the build needs is gone from inventory and containers alike: true when the
      *  owner has been asked and says there is more now (the call returns after the owner resumes). */
     public java.util.function.IntPredicate shortage;
+    /** The owner was asked for temporary blocks since they last ran low ({@link #shortage}). */
+    boolean looseAsked;
 
     /**
      * (The client mod) Clears the build box of what is in the way before building: every block in a cell where the target
@@ -1016,6 +1018,27 @@ public final class Builder extends Supplies {
         return r;
     }
 
+    /**
+     * (the client mod) No temporary blocks carried, and none in the containers or no way to them: without them every cell
+     * that needs a pillar, a bridge or a stand is skipped, one after another, the clean-up cannot reach what stands high,
+     * and the build ends short with nothing said. The owner is asked ({@link #shortage}), once each time they run out.
+     * A run with no one to ask (shortage null) goes on as it always did; the check itself changes nothing.
+     */
+    void askForLoose(int y) {
+        if (shortage == null) return;
+        boolean out = count(scaffoldItem) == 0 && (stranded || inDepot(scaffoldItem) == 0);
+        if (!out) { looseAsked = false; return; }
+        if (looseAsked) return;
+        looseAsked = true;
+        if (shortage.test(scaffoldItem)) { survey(); restock(y); checkScaffold(); }
+    }
+
+    /** The clean-up needs temporary blocks too (to climb to what stands high): asked for first when there are none. */
+    @Override void cleanup() {
+        if (!scaffold.isEmpty()) askForLoose(cy());
+        super.cleanup();
+    }
+
     /** ROPE_FAR: target cells placed, the target cells of the build, and whether the build was found behind its pace. */
     long cellsPlaced, cellsTotal = -1;
     boolean behind;
@@ -1035,6 +1058,7 @@ public final class Builder extends Supplies {
         if (waitsForDoor(i)) { deferWhy = "door order"; return DEFER; }
         checkScaffold();
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        askForLoose(y);
         int t = g.tgt[i];
         Spec sp = spec(t);
         if (!sp.placeable) { skip(i, "cannot be placed by hand: " + StateInfo.descriptionId[t].replace("block.minecraft.", "")); return SKIP; }

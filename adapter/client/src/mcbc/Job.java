@@ -587,7 +587,20 @@ public final class Job {
         phase = "finished: " + builder.status;
         result = Judge.judge(target, site.snapshot(mcb.mc.Convert.view(level)), new mcb.mc.GameSurvival(level));
         endText = name + ": " + builder.status + " - " + (result.pass ? "PASS" : "FAIL") + " (" + result.failedSections + " of " + result.sections + " sections fail; missing " + result.missing + ", wrong " + result.wrong + ", left behind " + result.leftover + "); "
-            + builder.placed + " placed, " + client.realTicks + " ticks (" + String.format(java.util.Locale.ROOT, "%.1f", client.realTicks / Math.max(1.0, builder.placed)) + " a block), " + setbacks + " setbacks. /mcbc status for more.";
+            + builder.placed + " placed, " + client.realTicks + " ticks (" + String.format(java.util.Locale.ROOT, "%.1f", client.realTicks / Math.max(1.0, builder.placed)) + " a block), " + setbacks + " setbacks."
+            + skippedText() + " /mcbc status for more.";
+    }
+
+    /** When cells are missing at the end: why cells were skipped on the way, most common first (" ... 180 no way to place, ..."). */
+    private String skippedText() {
+        if (builder == null || builder.skipReasons.isEmpty() || result == null || result.missing == 0) return "";
+        List<Map.Entry<String, Integer>> r = new ArrayList<>(builder.skipReasons.entrySet());
+        r.sort((a, b) -> b.getValue() - a.getValue());
+        StringBuilder sb = new StringBuilder(" Cells skipped on the way (some went in later): ");
+        for (int k = 0; k < r.size() && k < 4; k++) sb.append(k == 0 ? "" : ", ").append(r.get(k).getValue()).append(' ').append(r.get(k).getKey());
+        if (r.size() > 4) sb.append(", ...");
+        if (builder.count(site.scaffoldItem) == 0) sb.append(" (it had no temporary blocks left)");
+        return sb.append('.').toString();
     }
 
     private void addPlaceholders(Site s) {
@@ -609,10 +622,29 @@ public final class Job {
 
     /** Bot thread: out of an item. Pause and ask; true when the owner resumed (there may be more now). */
     private boolean askFor(int item) {
-        int still = 0;
-        Map<Integer, Integer> need = site.stillNeeded(mcb.mc.Convert.view(mc.level));
-        still = need.getOrDefault(item, 0);
-        String msg = "out of " + itemName(item) + ": " + still + " more needed. Put them in a supply container (or your inventory), then /mcbc resume.";
+        // first look again: the bot's picture of the containers comes from reading them and from what it took since,
+        // and a container read wrong once (a slot looked empty) must not stop the build. The planner reads them again
+        // itself after a true answer.
+        if (!site.stock.isEmpty() && !containers.isEmpty() && !mcb.bot.ModView.stranded(builder)) {
+            phase = "reading the supply containers again";
+            builder.survey();
+            phase = "building";
+            for (Site.Stock s : site.stock) if (s.item == item && s.count > 0) { McbcMod.event("the containers had more " + itemName(item) + " than the bot knew of"); return true; }
+        }
+        String msg;
+        if (item == site.scaffoldItem) {
+            int tower = 0;
+            for (int i = 0; i < 36; i++) { var s = client.inventorySlot(i); if (s.getItem() == mcb.build.ItemInfo.SCAFFOLDING) tower += s.getCount(); }
+            boolean cutOff = mcb.bot.ModView.stranded(builder);
+            msg = "out of temporary blocks (" + itemName(item) + ", the kind this build uses for them)"
+                + (tower == 0 ? " and scaffolding" : "") + (cutOff ? ", and no safe way down to the supply containers without them" : "")
+                + ": without them the cells it cannot reach from the ground or the build are skipped."
+                + " Put a few stacks of " + itemName(item) + " in " + (cutOff ? "your inventory" : "a supply container (or your inventory)") + ", then /mcbc resume; /mcbc resume without them goes on and skips those cells.";
+        } else {
+            Map<Integer, Integer> need = site.stillNeeded(mcb.mc.Convert.view(mc.level));
+            int still = need.getOrDefault(item, 0);
+            msg = "out of " + itemName(item) + ": " + still + " more needed. Put them in a supply container (or your inventory), then /mcbc resume.";
+        }
         mc.execute(() -> pause(msg));
         // the pause takes effect at the next tick: tick until the owner resumes (the bot does nothing meanwhile)
         client.releaseKeys();

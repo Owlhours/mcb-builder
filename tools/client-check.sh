@@ -9,8 +9,9 @@
 #   tools/client-check.sh a.mcb b.mcb ...  normalised builds as well (the harness's corpus format)
 #   J=4 tools/client-check.sh ...          worker processes (default: the number of cores, at most 8)
 #
-# Then it checks one thing the old client did wrong: a floating build (a file whose bottom layers are empty) must
-# land at its height above the file's origin (mcb.headless.ClientFloatCheck).
+# Then it checks two things the old client did wrong: a floating build (a file whose bottom layers are empty) must
+# land at its height above the file's origin (mcb.headless.ClientFloatCheck); and a bot that runs out of temporary
+# blocks must ask its owner for more, and finish once given them (mcb.headless.ClientShortageCheck).
 #
 # The old side is the old client planner (client/src/mcb/{bot,build,schem} at 0ff6f68, with one mechanical change:
 # its status field "c.note = x" became the call "c.note(x)") behind the headless runner and the server-side body as
@@ -72,3 +73,6 @@ fi
 # ---- and the client's placement of a floating build (empty bottom layers kept, so it lands where the file says)
 d=$(mktemp -d "$W/new/float.XXXXXX")
 (cd "$d" && java -Xmx3g -XX:+UseSerialGC -cp "$W/new/classes:$SERVER_CP" mcb.headless.ClientFloatCheck 2> /dev/null | grep '^float check') || { echo "client-check: the floating build check FAILED"; exit 1; }
+# ---- and the client running out of temporary blocks: it asks the owner, and finishes once given more
+d=$(mktemp -d "$W/new/short.XXXXXX")
+(cd "$d" && java -Xmx3g -XX:+UseSerialGC -cp "$W/new/classes:$SERVER_CP" mcb.headless.ClientShortageCheck 2> /dev/null | grep '^shortage check') || { echo "client-check: the shortage check FAILED"; exit 1; }

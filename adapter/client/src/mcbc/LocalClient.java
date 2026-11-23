@@ -174,7 +174,15 @@ public final class LocalClient implements mcb.game.Client {
     @Override public mcb.game.Stack inventorySlot(int i) { return mcb.mc.Convert.stack(player.getInventory().getItem(i)); }
     @Override public int selectedSlot() { return player.getInventory().getSelectedSlot(); }
     @Override public boolean screenOpen() { return mc.gui.screen() != null; }
-    @Override public boolean containerOpen() { return player.containerMenu != player.inventoryMenu; }
+    /** The id of the container whose contents the server sent last (set on the game thread by the packet mixin). */
+    public static volatile int contentsArrived = -1;
+    /** A container's screen is open and its contents have arrived. The server sends the contents in a packet of
+     *  their own after the one that opens the screen; until it is handled every slot of the new menu reads empty,
+     *  and the planner, which reads and takes from the slots at once, would take an empty slot for a used-up one. */
+    @Override public boolean containerOpen() {
+        var m = player.containerMenu;
+        return m != player.inventoryMenu && m.containerId == contentsArrived;
+    }
     public AbstractContainerMenu menu() { return player.containerMenu; }
     @Override public int menuSize() { return player.containerMenu.slots.size(); }
     @Override public mcb.game.Stack menuSlot(int slot) { return mcb.mc.Convert.stack(player.containerMenu.getSlot(slot).getItem()); }
